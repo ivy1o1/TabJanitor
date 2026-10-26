@@ -76,6 +76,12 @@
   --brand-mark: #fdf6e9;
   --brand-line: #14110f;
 
+  /* The dark call-to-action sinks to near-black on hover, so it needs an
+     explicit light ink and glow rather than reusing --ink/--ink-invert. */
+  --btn-dark-hover-bg: #000000;
+  --btn-dark-hover-ink: #fdf6e9;
+  --btn-dark-glow: rgba(253, 246, 233, 0.55);
+
   --slogan-bg: #dcbcf5;
   --slogan-ink: #2b133f;
   --slogan-deco: rgba(43, 19, 63, 0.55);
@@ -115,6 +121,15 @@
   --cat-other-ink: #37322a;
   --cat-junk-bg: #cdb6f2;
   --cat-junk-ink: #2c1358;
+
+  /* Active-filter glow: the folder's own hue, lit as if escaping from behind it. */
+  --cat-development-glow: rgba(255, 205, 60, 0.8);
+  --cat-study-glow: rgba(70, 205, 105, 0.75);
+  --cat-research-glow: rgba(45, 205, 195, 0.75);
+  --cat-shopping-glow: rgba(255, 155, 60, 0.78);
+  --cat-entertainment-glow: rgba(250, 105, 205, 0.78);
+  --cat-other-glow: rgba(170, 158, 138, 0.7);
+  --cat-junk-glow: rgba(160, 115, 240, 0.78);
 }
 
 /* ------------------------------------------------------------------- dark
@@ -147,6 +162,10 @@
   --brand-tile: #0d0a08;
   --brand-mark: #f6efe2;
   --brand-line: #4a3f35;
+
+  --btn-dark-hover-bg: #17130f;
+  --btn-dark-hover-ink: #f6efe2;
+  --btn-dark-glow: rgba(246, 239, 226, 0.7);
 
   --slogan-bg: #4a2c66;
   --slogan-ink: #f0dfff;
@@ -186,4 +205,13 @@
   --cat-other-ink: #e4dccd;
   --cat-junk-bg: #3b2a63;
   --cat-junk-ink: #ded0ff;
+
+  /* Dark surfaces swallow a muted glow, so these run brighter than the card fills. */
+  --cat-development-glow: rgba(255, 216, 94, 0.55);
+  --cat-study-glow: rgba(95, 221, 119, 0.5);
+  --cat-research-glow: rgba(56, 224, 210, 0.5);
+  --cat-shopping-glow: rgba(255, 171, 82, 0.5);
+  --cat-entertainment-glow: rgba(255, 126, 214, 0.52);
+  --cat-other-glow: rgba(200, 185, 153, 0.42);
+  --cat-junk-glow: rgba(181, 139, 255, 0.55);
 }

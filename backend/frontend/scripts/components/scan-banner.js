@@ -7,7 +7,6 @@ import { icon } from '../icons.js';
 export function renderScanBanner({ scanning }) {
   return `
     <section class="surface scan-banner" aria-labelledby="scan-title">
-      <span class="scan-banner__spark" aria-hidden="true">${icon('sparkle', { size: 28 })}</span>
       <div class="scan-banner__text">
         <h2 id="scan-title">Scan your current window</h2>
         <p>We&rsquo;ll analyze your tabs and suggest how to organize them.</p>

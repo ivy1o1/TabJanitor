@@ -145,7 +145,8 @@ select {
   font-size: var(--text-sm);
   font-weight: 600;
   transition: transform var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease),
-    background var(--motion-fast) var(--ease);
+    background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease),
+    text-shadow var(--motion-fast) var(--ease);
 }
 
 .btn:hover {
@@ -180,8 +181,17 @@ select {
   color: var(--ink-invert);
 }
 
-.btn--dark:hover {
-  background: var(--line);
+.btn--dark:hover,
+.btn--dark:focus-visible {
+  background: var(--btn-dark-hover-bg);
+  color: var(--btn-dark-hover-ink);
+  text-shadow: 0 0 9px var(--btn-dark-glow);
+}
+
+/* text-shadow cannot reach an SVG stroke, so the icon gets its own halo. */
+.btn--dark:hover .icon,
+.btn--dark:focus-visible .icon {
+  filter: drop-shadow(0 0 5px var(--btn-dark-glow));
 }
 
 .btn--ghost {
@@ -350,13 +360,13 @@ select {
 
 /* Category tokens */
 
-.cat-development { --cat-bg: var(--cat-development-bg); --cat-ink: var(--cat-development-ink); }
-.cat-study { --cat-bg: var(--cat-study-bg); --cat-ink: var(--cat-study-ink); }
-.cat-research { --cat-bg: var(--cat-research-bg); --cat-ink: var(--cat-research-ink); }
-.cat-shopping { --cat-bg: var(--cat-shopping-bg); --cat-ink: var(--cat-shopping-ink); }
-.cat-entertainment { --cat-bg: var(--cat-entertainment-bg); --cat-ink: var(--cat-entertainment-ink); }
-.cat-other { --cat-bg: var(--cat-other-bg); --cat-ink: var(--cat-other-ink); }
-.cat-junk { --cat-bg: var(--cat-junk-bg); --cat-ink: var(--cat-junk-ink); }
+.cat-development { --cat-bg: var(--cat-development-bg); --cat-ink: var(--cat-development-ink); --cat-glow: var(--cat-development-glow); }
+.cat-study { --cat-bg: var(--cat-study-bg); --cat-ink: var(--cat-study-ink); --cat-glow: var(--cat-study-glow); }
+.cat-research { --cat-bg: var(--cat-research-bg); --cat-ink: var(--cat-research-ink); --cat-glow: var(--cat-research-glow); }
+.cat-shopping { --cat-bg: var(--cat-shopping-bg); --cat-ink: var(--cat-shopping-ink); --cat-glow: var(--cat-shopping-glow); }
+.cat-entertainment { --cat-bg: var(--cat-entertainment-bg); --cat-ink: var(--cat-entertainment-ink); --cat-glow: var(--cat-entertainment-glow); }
+.cat-other { --cat-bg: var(--cat-other-bg); --cat-ink: var(--cat-other-ink); --cat-glow: var(--cat-other-glow); }
+.cat-junk { --cat-bg: var(--cat-junk-bg); --cat-ink: var(--cat-junk-ink); --cat-glow: var(--cat-junk-glow); }
 
 /* ------------------------------------------------------------------ shell */
 
@@ -702,17 +712,6 @@ select {
   flex-wrap: wrap;
 }
 
-.scan-banner__spark {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  flex: none;
-  background: var(--accent-ink);
-  color: var(--accent);
-  border-radius: var(--radius-md);
-}
-
 .scan-banner__text {
   flex: 1 1 260px;
   min-width: 0;
@@ -838,7 +837,10 @@ select {
   color: var(--cat-ink);
   border: var(--border-w) solid var(--line);
   border-radius: var(--radius-md);
-  box-shadow: 5px 5px 0 var(--shadow-color);
+  /* --card-glow is empty until the card becomes the active filter, and it rides
+     along in every state so hover never cancels the glow. */
+  --card-glow: 0 0 0 0 transparent;
+  box-shadow: 5px 5px 0 var(--shadow-color), var(--card-glow);
   transition: transform var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease);
 }
 
@@ -858,12 +860,12 @@ select {
 
 .card:hover {
   transform: translate(-2px, -2px);
-  box-shadow: 7px 7px 0 var(--shadow-color);
+  box-shadow: 7px 7px 0 var(--shadow-color), var(--card-glow);
 }
 
 .card:active {
   transform: translate(2px, 2px);
-  box-shadow: 2px 2px 0 var(--shadow-color);
+  box-shadow: 2px 2px 0 var(--shadow-color), var(--card-glow);
 }
 
 .card__top {
@@ -911,17 +913,9 @@ select {
 .card[aria-pressed='true'] {
   outline: 3px solid var(--line);
   outline-offset: 3px;
-}
-
-.card[aria-pressed='true']::after {
-  content: 'Filtering';
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
-  font-size: var(--text-2xs);
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  /* Two layers: a tight core and a wide falloff, so the light reads as coming
+     from behind the folder rather than as a ring around it. */
+  --card-glow: 0 0 14px 2px var(--cat-glow), 0 0 36px 12px var(--cat-glow);
 }
 
 /* Tab table */
