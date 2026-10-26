@@ -117,9 +117,8 @@ export async function classifyTabs({ promptTabs, config, chromeRef, fetchImpl, t
   let tokensPerSecond = null;
   let finishReason = null;
   for (const tab of promptTabs) {
-    let completion;
     try {
-      completion = await chatCompletion({
+      const completion = await chatCompletion({
         messages: [
           { role: 'system', content: SYSTEM_INSTRUCTION },
           { role: 'user', content: buildUserPrompt([tab]) },
@@ -130,22 +129,27 @@ export async function classifyTabs({ promptTabs, config, chromeRef, fetchImpl, t
         fetchImpl,
         timeoutMs,
       });
+      serverModel = completion.serverModel || serverModel;
+      tokensPerSecond = completion.tokensPerSecond || tokensPerSecond;
+      finishReason = completion.finishReason;
+      const parsed = extractJson(completion.content);
+      if (!parsed) {
+        failedRequests.push({ ref: tab.ref, code: ERROR_CODES.INVALID_MODEL_OUTPUT, message: 'The model response could not be parsed as JSON.' });
+        continue;
+      }
+      // Validation is strict: an unusable entry for this tab is recorded as this tab's
+      // failure so the remaining tabs still get classified.
+      const result = validateClassifications(parsed, [tab]);
+      accepted.push(...result.accepted);
+      rejected.push(...result.rejected);
     } catch (error) {
       if (error.code && error.code !== ERROR_CODES.INVALID_MODEL_OUTPUT) throw error;
-      failedRequests.push({ ref: tab.ref, code: error.code || 'INVALID_MODEL_OUTPUT', message: error.message });
-      continue;
+      failedRequests.push({
+        ref: tab.ref,
+        code: error.code || ERROR_CODES.INVALID_MODEL_OUTPUT,
+        message: error.message,
+      });
     }
-    serverModel = completion.serverModel || serverModel;
-    tokensPerSecond = completion.tokensPerSecond || tokensPerSecond;
-    finishReason = completion.finishReason;
-    const parsed = extractJson(completion.content);
-    if (!parsed) {
-      failedRequests.push({ ref: tab.ref, code: ERROR_CODES.INVALID_MODEL_OUTPUT, message: 'The model response could not be parsed as JSON.' });
-      continue;
-    }
-    const result = validateClassifications(parsed, [tab]);
-    accepted.push(...result.accepted);
-    rejected.push(...result.rejected);
   }
   if (accepted.length === 0) {
     throw appError(ERROR_CODES.INVALID_MODEL_OUTPUT, 'The model returned no usable classifications for any tab.', {

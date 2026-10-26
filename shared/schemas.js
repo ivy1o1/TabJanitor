@@ -45,3 +45,17 @@ export function clampString(value, max) {
   if (typeof value !== 'string') return '';
   return value.length > max ? value.slice(0, max) : value;
 }
+
+// Optional numeric request fields must be bounded positive integers when supplied;
+// omitted fields fall back to the documented default.
+export function boundedInt(value, { name, min, max, fallback }) {
+  if (value === undefined || value === null) return fallback;
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw appError(ERROR_CODES.INVALID_REQUEST, `${name} must be an integer between ${min} and ${max}.`, {
+      [name]: value,
+      min,
+      max,
+    });
+  }
+  return value;
+}

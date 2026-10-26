@@ -91,8 +91,9 @@ chrome.storage.local.set({ tabjanitor.config: {
 } });
 ```
 
-- `inferenceEndpoint` must be an http(s) base URL with no path, query or credentials; it is validated
-  before any request.
+- `inferenceEndpoint` must be an `http` base URL on `127.0.0.1` or `localhost`, with no path, query or
+  credentials. It is validated before any request, and a non-loopback value is refused with
+  `CONFIG_MISSING` — the extension cannot be pointed at a cloud endpoint by configuration alone.
 - `inferenceModel` is the identifier sent in the request. llama.cpp reports the loaded model at
   `/props` (`model_alias` / `model_path`). `gemma-3-1b-it` was verified to be accepted by this
   server; check `/props` after loading a different model.
@@ -123,22 +124,25 @@ Readiness never sends tab metadata; the `ready` state is confirmed with one synt
 llama.cpp answers CORS with `--cors-origins` defaulting to `*`, which works from the extension
 origin. If you restrict it, include `chrome-extension://<your unpacked extension id>`.
 
-Privacy note: metadata goes wherever `inferenceEndpoint` points. With the loopback default it stays
-on the machine. If you configure a remote endpoint, tab titles and URLs leave the device. No key is
+Privacy note: the validation above and the loopback-only `host_permissions` together mean tab
+metadata cannot be sent anywhere but this machine — a remote `inferenceEndpoint` is rejected by the
+client before a request is made, and the manifest does not grant the extension any other host. No key is
 needed for the local path, and no credential is ever committed.
 
 ## Tests
 
 ```bash
 node --version    # v24.x
-npm test          # 54 mocked unit tests, no network, no model required
+npm test          # 69 mocked unit tests, no network, no model required
 ```
 
 `npm test` runs `node --test "tests/*.test.js"` (Node's built-in runner; no dependencies added).
 Coverage includes URL sanitization, unsupported-page handling, prompt content, JSON extraction,
 invalid/duplicate/unknown/missing refs, invalid categories and confidence, per-tab request count,
-timeout and unavailable-endpoint handling, local counts, user edits, closure selection, stale
-sessions, vanished tabs, partial browser failures, and "no browser mutation before approval".
+per-tab failure isolation when the model answers one tab with unusable JSON, endpoint validation
+(loopback-only), bounded `maxTabsPerRequest` / `timeoutMs` arguments, timeout and unavailable-endpoint
+handling, local counts, user edits, closure selection, stale sessions, vanished tabs, partial browser
+failures, and "no browser mutation before approval".
 
 `tests/helpers.js` injects a fake `chrome` object and a fake `fetch`; nothing real is touched.
 
@@ -186,7 +190,11 @@ sessions, vanished tabs, partial browser failures, and "no browser mutation befo
   given a batch, so batching was measured and rejected. Expect roughly 2 s per tab.
 - The 1B model mislabels generic pages (for example `react.dev` came back as `Study`), which is why
   human review is mandatory and confidence is informational.
-- A scan is capped at 40 tabs per request cycle; the rest are reported as `truncated` and left
-  unclassified rather than guessed.
+- A scan is capped at 40 tabs per request cycle (configurable up to 100 via `maxTabsPerRequest`);
+  the rest are reported as `truncated` and left unclassified rather than guessed.
+- A model server on another machine (for example `http://192.168.1.20:8080`) is refused by design:
+  the local-only rule keeps the endpoint check and the loopback `host_permissions` in agreement, so
+  tab metadata has no configuration path off this device. Serving the model from a different host
+  would require an explicit change to both, and that has not been approved.
 - Edge compatibility is not assessed yet; browser API usage is confined to
   `tab-scanner.js` and `organizer.js` behind an injected `chromeRef`.

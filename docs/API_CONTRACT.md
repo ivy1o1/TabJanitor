@@ -33,7 +33,7 @@ The frontend never needs to know how a model request is built or how model outpu
 | `INVALID_REQUEST` | Unknown message type, malformed payload, missing `sessionId`, or an apply request without `approve: true`. |
 | `UNTRUSTED_SENDER` | The message did not come from an extension page of this extension ID. |
 | `UNSUPPORTED_TABS` | A requested operation targeted a tab the extension may not classify or mutate (`chrome://` and similar). |
-| `CONFIG_MISSING` | No inference endpoint configured, or the configured value is not a valid http(s) base URL. |
+| `CONFIG_MISSING` | No inference endpoint configured, or the configured value is not a valid, path-less, credential-free `http` URL on `127.0.0.1` / `localhost`. TabJanitor only talks to a local model, so any other host is refused before a request is made. |
 | `MODEL_UNAVAILABLE` | The endpoint could not be reached, refused the connection, or returned a non-2xx status. |
 | `INFERENCE_TIMEOUT` | A request exceeded the configured timeout. |
 | `INVALID_MODEL_OUTPUT` | The model reply was not parseable JSON, or produced no valid classification for any tab. |
@@ -50,8 +50,8 @@ Request payload:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `maxTabsPerRequest` | integer | no | Upper bound on tabs offered to the model. Default `40`. |
-| `timeoutMs` | integer | no | Per-request inference timeout override. |
+| `maxTabsPerRequest` | integer | no | Upper bound on tabs offered to the model. Default `40`; must be an integer from `1` to `100`. Any other value (including a numeric string, a float, or `0`) is rejected with `INVALID_REQUEST` before any tab is read. |
+| `timeoutMs` | integer | no | Per-request inference timeout override. Must be an integer from `1000` to `300000`; omit it to use the configured timeout (default `60000`). |
 
 `data`:
 

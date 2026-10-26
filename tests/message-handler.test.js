@@ -171,6 +171,51 @@ test('a partially failed apply reports PARTIAL_APPLY_FAILURE with the real resul
   assert.equal(applied.error.details.failures.length, 3);
 });
 
+test('a partially failed apply reports which operations succeeded and which failed', async () => {
+  const fixture = scanFixture();
+  const fetchImpl = fakeFetch([['/v1/chat/completions', fixtureReply()]]);
+  const scan = await handleMessage({
+    message: { type: MESSAGE_TYPES.SCAN_TABS, payload: {} },
+    state: fixture.state,
+    chromeRef: fixture.chromeRef,
+    config: CONFIG,
+    fetchImpl,
+  });
+  const sessionId = scan.data.sessionId;
+  // One tab selected for closure, one tab disappears before apply.
+  await handleMessage({
+    message: { type: MESSAGE_TYPES.UPDATE_REVIEW_PLAN, payload: { sessionId, closures: [{ tabId: 1, closeSelected: true }] } },
+    state: fixture.state,
+    chromeRef: fixture.chromeRef,
+    config: CONFIG,
+    fetchImpl,
+  });
+  fixture.chromeRef.tabs.remove = async (tabId) => {
+    if (tabId === 1) throw new Error('close denied by the browser');
+    fixture.calls.removed.push(tabId);
+  };
+  const applied = await handleMessage({
+    message: { type: MESSAGE_TYPES.APPLY_ORGANIZATION, payload: { sessionId, approve: true } },
+    state: fixture.state,
+    chromeRef: fixture.chromeRef,
+    config: CONFIG,
+    fetchImpl,
+  });
+  assert.equal(applied.ok, false);
+  assert.equal(applied.error.code, 'PARTIAL_APPLY_FAILURE');
+  assert.equal(applied.error.details.closureRequested, 1);
+  assert.equal(applied.error.details.closureCompleted, 0);
+  assert.deepEqual(applied.error.details.closures, []);
+  assert.deepEqual(applied.error.details.failures, [{ operation: 'close', tabId: 1, reason: 'close denied by the browser' }]);
+  // the tabs that still exist were grouped and reported honestly, including the
+  // tab whose close failed — it is still in the window, so grouping it is real
+  assert.equal(applied.error.details.groups.length, 3);
+  assert.deepEqual(applied.error.details.groups.map((group) => group.status), ['success', 'success', 'success']);
+  assert.deepEqual(applied.error.details.groups.map((group) => group.tabIds).flat().sort((a, b) => a - b), [1, 2, 3]);
+  // tab 2 and 3 were never selected for closure, so nothing else was removed
+  assert.deepEqual(fixture.calls.removed, []);
+});
+
 test('an unavailable endpoint surfaces MODEL_UNAVAILABLE instead of fake results', async () => {  const fixture = scanFixture();
   const fetchImpl = fakeFetch([['/v1/chat/completions', () => { throw new Error('ECONNREFUSED'); }]]);
   const response = await handleMessage({
@@ -257,4 +302,87 @@ test('malformed requests are rejected without side effects', async () => {
     assert.equal(response.error.code, 'INVALID_REQUEST');
   }
   assert.deepEqual(fixture.calls.grouped, []);
+});
+
+test('SCAN_TABS rejects out-of-range or non-integer limits before doing any work', async () => {
+  for (const bad of [0, -1, 1.5, '10', Number.NaN, 101, 1e9, true, {}, []]) {
+    const fixture = scanFixture();
+    const response = await handleMessage({
+      message: { type: MESSAGE_TYPES.SCAN_TABS, payload: { maxTabsPerRequest: bad } },
+      state: fixture.state,
+      chromeRef: fixture.chromeRef,
+      config: CONFIG,
+      fetchImpl: fixture.fetchImpl,
+    });
+    assert.equal(response.ok, false, `maxTabsPerRequest=${JSON.stringify(bad)}`);
+    assert.equal(response.error.code, 'INVALID_REQUEST');
+    assert.equal(response.error.details.min, 1);
+    assert.equal(response.error.details.max, 100);
+    // rejected before the window was read or the model was called
+    assert.equal(fixture.fetchImpl.requests.length, 0);
+    assert.equal(fixture.state.current, null);
+  }
+});
+
+test('SCAN_TABS rejects invalid timeout values with a structured error', async () => {
+  for (const bad of [0, -5, '60000', 2.5, 300001, Number.POSITIVE_INFINITY]) {
+    const fixture = scanFixture();
+    const response = await handleMessage({
+      message: { type: MESSAGE_TYPES.SCAN_TABS, payload: { timeoutMs: bad } },
+      state: fixture.state,
+      chromeRef: fixture.chromeRef,
+      config: CONFIG,
+      fetchImpl: fixture.fetchImpl,
+    });
+    assert.equal(response.ok, false, `timeoutMs=${JSON.stringify(bad)}`);
+    assert.equal(response.error.code, 'INVALID_REQUEST');
+    assert.equal(response.error.details.min, 1000);
+    assert.equal(response.error.details.max, 300000);
+    assert.equal(fixture.fetchImpl.requests.length, 0);
+  }
+});
+
+test('valid limits are honoured and omitted fields use the documented defaults', async () => {
+  const many = Array.from({ length: 6 }, (_, index) => ({
+    id: 200 + index, windowId: 7, title: `Tab ${index}`, url: `https://ex${index}.com/`,
+  }));
+  const capped = scanFixture(many);
+  const cappedResponse = await handleMessage({
+    message: { type: MESSAGE_TYPES.SCAN_TABS, payload: { maxTabsPerRequest: 2, timeoutMs: 5000 } },
+    state: capped.state,
+    chromeRef: capped.chromeRef,
+    config: CONFIG,
+    fetchImpl: fakeFetch([['/v1/chat/completions', fixtureReply()]]),
+  });
+  assert.equal(cappedResponse.ok, true);
+  assert.equal(cappedResponse.data.classifiedCount, 2);
+  assert.deepEqual(cappedResponse.data.truncated, [202, 203, 204, 205]);
+  assert.equal(cappedResponse.data.modelMeta.requests, 2);
+
+  const defaulted = scanFixture(many);
+  const defaultResponse = await handleMessage({
+    message: { type: MESSAGE_TYPES.SCAN_TABS, payload: {} },
+    state: defaulted.state,
+    chromeRef: defaulted.chromeRef,
+    config: CONFIG,
+    fetchImpl: fakeFetch([['/v1/chat/completions', fixtureReply()]]),
+  });
+  assert.equal(defaultResponse.ok, true);
+  assert.equal(defaultResponse.data.modelMeta.requests, 6);
+  assert.deepEqual(defaultResponse.data.truncated, []);
+});
+
+test('a non-loopback endpoint is refused before any tab data is sent', async () => {
+  const fixture = scanFixture();
+  const fetchImpl = fakeFetch([['/v1/chat/completions', fixtureReply()]]);
+  const response = await handleMessage({
+    message: { type: MESSAGE_TYPES.SCAN_TABS, payload: {} },
+    state: fixture.state,
+    chromeRef: fixture.chromeRef,
+    config: { ...CONFIG, endpoint: 'https://cloud.example.com' },
+    fetchImpl,
+  });
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, 'CONFIG_MISSING');
+  assert.equal(fetchImpl.requests.length, 0);
 });

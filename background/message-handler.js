@@ -1,5 +1,5 @@
 import { MESSAGE_TYPES, ERROR_CODES, STATUS_VALUES, LIMITS } from '../shared/constants.js';
-import { appError, err, ok, isPlainObject } from '../shared/schemas.js';
+import { appError, boundedInt, err, ok, isPlainObject } from '../shared/schemas.js';
 import { captureWindowSnapshot, buildPromptTabs, truncatedRefs } from './tab-scanner.js';
 import { classifyTabs } from './classifier.js';
 import { applyPlanEdits, buildReviewPlan, summary } from './review-plan.js';
@@ -27,14 +27,26 @@ function requireSession(state, sessionId) {
 }
 
 async function handleScan({ payload, state, chromeRef, config, fetchImpl }) {
+  const maxTabs = boundedInt(payload.maxTabsPerRequest, {
+    name: 'maxTabsPerRequest',
+    min: 1,
+    max: LIMITS.MAX_TABS_PER_REQUEST,
+    fallback: LIMITS.DEFAULT_MAX_TABS_PER_REQUEST,
+  });
+  const timeoutMs = boundedInt(payload.timeoutMs, {
+    name: 'timeoutMs',
+    min: LIMITS.MIN_REQUEST_TIMEOUT_MS,
+    max: LIMITS.MAX_REQUEST_TIMEOUT_MS,
+    fallback: undefined,
+  });
   const snapshot = await captureWindowSnapshot({ chromeRef });
-  const promptTabs = buildPromptTabs(snapshot, payload?.maxTabsPerRequest || LIMITS.DEFAULT_MAX_TABS_PER_REQUEST);
+  const promptTabs = buildPromptTabs(snapshot, maxTabs);
   const result = await classifyTabs({
     promptTabs,
     config,
     chromeRef,
     fetchImpl,
-    timeoutMs: payload?.timeoutMs,
+    timeoutMs,
   });
   const plan = buildReviewPlan(snapshot, result);
   const stateEntry = {
@@ -53,7 +65,7 @@ async function handleScan({ payload, state, chromeRef, config, fetchImpl }) {
       eligibleCount: snapshot.eligibleTabs.length,
       skippedUnsupported: snapshot.skippedTabs,
       unclassified: plan.unclassified,
-      truncated: truncatedRefs(snapshot, payload?.maxTabsPerRequest || LIMITS.DEFAULT_MAX_TABS_PER_REQUEST),
+      truncated: truncatedRefs(snapshot, maxTabs),
       rejected: result.rejected,
       modelMeta: {
         modelCalled: result.modelCalled,

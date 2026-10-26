@@ -3,6 +3,11 @@ import { DEFAULT_INFERENCE_ENDPOINT, ERROR_CODES, LIMITS } from '../shared/const
 
 export const CONFIG_STORAGE_KEY = 'tabjanitor.config';
 
+// Must stay in sync with manifest.json host_permissions, which are loopback-only.
+// A non-loopback endpoint could not be reached by the service worker anyway, and the
+// agreed architecture is local-only Gemma inference with no cloud fallback.
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost'];
+
 export function validateEndpoint(endpoint) {
   if (typeof endpoint !== 'string' || endpoint.length === 0) {
     throw appError(ERROR_CODES.CONFIG_MISSING, 'No inference endpoint is configured.');
@@ -13,14 +18,20 @@ export function validateEndpoint(endpoint) {
   } catch {
     throw appError(ERROR_CODES.CONFIG_MISSING, 'The configured inference endpoint is not a valid URL.', { endpoint });
   }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw appError(ERROR_CODES.CONFIG_MISSING, 'The inference endpoint must use http or https.', { endpoint });
+  if (parsed.protocol !== 'http:') {
+    throw appError(ERROR_CODES.CONFIG_MISSING, 'The inference endpoint must use http on a loopback address.', { endpoint });
   }
   if (parsed.username || parsed.password) {
     throw appError(ERROR_CODES.CONFIG_MISSING, 'The inference endpoint must not embed credentials.');
   }
   if (parsed.pathname !== '/' && parsed.pathname !== '') {
     throw appError(ERROR_CODES.CONFIG_MISSING, 'The inference endpoint must be a base URL without a path.', { endpoint });
+  }
+  if (!LOOPBACK_HOSTS.includes(parsed.hostname)) {
+    throw appError(ERROR_CODES.CONFIG_MISSING, 'TabJanitor only supports a local model: the inference endpoint must be 127.0.0.1 or localhost.', {
+      hostname: parsed.hostname,
+      allowedHosts: LOOPBACK_HOSTS,
+    });
   }
   return parsed.origin;
 }

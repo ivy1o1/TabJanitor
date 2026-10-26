@@ -100,6 +100,95 @@ test('one unparsable tab is reported while the others still classify', async () 
   assert.equal(result.failedRequests[0].code, ERROR_CODES.INVALID_MODEL_OUTPUT);
 });
 
+test('a schema-invalid classification for one tab does not abort the remaining tabs', async () => {
+  const snapshot = await snapshotFixture();
+  const tabs = promptTabs(snapshot);
+  let call = 0;
+  const handler = (url, init) => {
+    call += 1;
+    if (call === 2) return chatResponse('{"tabs":[{"ref":2,"category":"Gambling","explanation":"not an allowed category","confidence":90}]}');
+    if (call === 3) return chatResponse('{"tabs":[{"ref":3,"category":"Study","explanation":"confidence out of range","confidence":140}]}');
+    return chatResponse('{"tabs":[{"ref":1,"category":"Development","explanation":"code docs","confidence":91}]}');
+  };
+  const fetchImpl = fakeFetch([['/v1/chat/completions', handler]]);
+  const result = await classifyTabs({ promptTabs: tabs, config: CONFIG, fetchImpl });
+  // every tab was still attempted
+  assert.equal(fetchImpl.requests.filter((entry) => entry.url.includes('/v1/chat/completions')).length, tabs.length);
+  assert.deepEqual(result.accepted.map((entry) => entry.ref), [1]);
+  assert.deepEqual(result.missingRefs, [2, 3]);
+  assert.equal(result.failedRequests.length, 2);
+  assert.deepEqual(result.failedRequests.map((entry) => entry.ref), [2, 3]);
+  for (const failure of result.failedRequests) {
+    assert.equal(failure.code, ERROR_CODES.INVALID_MODEL_OUTPUT);
+  }
+});
+
+test('truncated json for one tab is recorded without losing the others', async () => {
+  const snapshot = await snapshotFixture();
+  const tabs = promptTabs(snapshot);
+  let call = 0;
+  const handler = (url, init) => {
+    call += 1;
+    if (call === 1) return chatResponse('{"tabs":[{"ref":1,"category":"Study","expl');
+    return chatResponseForPrompt(() => ({ category: 'Other', explanation: 'ok', confidence: 60 }))(url, init);
+  };
+  const fetchImpl = fakeFetch([['/v1/chat/completions', handler]]);
+  const result = await classifyTabs({ promptTabs: tabs, config: CONFIG, fetchImpl });
+  assert.deepEqual(result.accepted.map((entry) => entry.ref), [2, 3]);
+  assert.deepEqual(result.missingRefs, [1]);
+  assert.equal(result.failedRequests[0].code, ERROR_CODES.INVALID_MODEL_OUTPUT);
+});
+
+test('a schema entry that answers a different ref is rejected for that tab only', async () => {
+  const snapshot = await snapshotFixture();
+  const tabs = promptTabs(snapshot);
+  let call = 0;
+  const handler = (url, init) => {
+    call += 1;
+    if (call === 1) return chatResponse('{"tabs":[{"ref":7,"category":"Study","explanation":"wrong ref","confidence":50}]}');
+    return chatResponseForPrompt(() => ({ category: 'Research', explanation: 'fine', confidence: 65 }))(url, init);
+  };
+  const fetchImpl = fakeFetch([['/v1/chat/completions', handler]]);
+  const result = await classifyTabs({ promptTabs: tabs, config: CONFIG, fetchImpl });
+  assert.deepEqual(result.accepted.map((entry) => entry.ref), [2, 3]);
+  assert.equal(result.failedRequests.length, 1);
+  assert.equal(result.failedRequests[0].ref, 1);
+});
+
+test('when no tab validates, the structured error is still returned', async () => {
+  const snapshot = await snapshotFixture();
+  const tabs = promptTabs(snapshot);
+  const fetchImpl = fakeFetch([['/v1/chat/completions', chatResponse('{"tabs":[{"ref":1,"category":"Nope","explanation":"x","confidence":200}]}')]]);
+  await assert.rejects(
+    () => classifyTabs({ promptTabs: tabs, config: CONFIG, fetchImpl }),
+    (error) => {
+      assert.equal(error.code, ERROR_CODES.INVALID_MODEL_OUTPUT);
+      assert.equal(error.details.requestedCount, tabs.length);
+      assert.equal(error.details.failedCount, tabs.length);
+      return true;
+    },
+  );
+});
+
+test('a transport failure still aborts the whole scan', async () => {
+  const snapshot = await snapshotFixture();
+  const tabs = promptTabs(snapshot);
+  let call = 0;
+  const handler = (url, init) => {
+    call += 1;
+    if (call === 2) throw new Error('ECONNREFUSED');
+    return chatResponseForPrompt()(url, init);
+  };
+  const fetchImpl = fakeFetch([['/v1/chat/completions', handler]]);
+  await assert.rejects(
+    () => classifyTabs({ promptTabs: tabs, config: CONFIG, fetchImpl }),
+    (error) => {
+      assert.equal(error.code, ERROR_CODES.MODEL_UNAVAILABLE);
+      return true;
+    },
+  );
+});
+
 test('json wrapped in a markdown fence is still parsed', () => {
   const wrapped = '```json\n{"tabs":[{"ref":1,"category":"Other","explanation":"x","confidence":50}]}\n```';
   const parsed = extractJson(wrapped);
