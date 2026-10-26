@@ -21,7 +21,7 @@ const BADGES = {
 /**
  * StatusHeader: the real local-model readiness from `GET_STATUS`, Refresh, and the slogan card.
  *
- * Nothing here is claimed: the badge, the endpoint and the message are exactly what the
+ * Nothing here is claimed: the badge and the message are exactly what the
  * service worker returned, and a failed check keeps its own error text.
  */
 export function renderStatusHeader({ status = {} }) {
@@ -39,7 +39,6 @@ export function renderStatusHeader({ status = {} }) {
           Local Model Status
           <span class="badge ${badge.className}"><span class="dot" aria-hidden="true"></span>${badge.text}</span>
         </h2>
-        <p class="status-card__meta">${escapeHtml(status.model || 'unknown model')} · <span data-role="endpoint">${escapeHtml(status.endpoint || 'not configured')}</span></p>
         <p class="status-card__meta muted" data-role="status-message">${escapeHtml(status.message || 'No status reported yet.')}</p>
       </div>
       <div class="status-actions">

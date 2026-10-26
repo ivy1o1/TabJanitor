@@ -1,0 +1,17 @@
+{
+  "name": "tabjanitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Workspace manifest: marks both folders as ES modules and runs the whole test suite.",
+  "scripts": {
+    "test": "node --test \"backend/tests/*.test.js\" \"frontend/tests/*.test.js\"",
+    "test:backend": "node --test \"backend/tests/*.test.js\"",
+    "test:frontend": "node --test \"frontend/tests/*.test.js\"",
+    "serve:frontend": "node backend/tools/serve-frontend.js",
+    "smoke:live": "node backend/tests/smoke-live.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

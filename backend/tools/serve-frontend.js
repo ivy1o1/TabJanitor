@@ -10,7 +10,8 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+// The repository root: the dashboard and the backend modules it imports as plain source.
+const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const host = '127.0.0.1';
 const port = Number(process.env.PORT || 4173);
 

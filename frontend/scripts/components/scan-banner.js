@@ -14,7 +14,7 @@ export function renderScanBanner({ scanning, status = {}, hasSession }) {
   const note = scanning
     ? 'Reading this window and asking the local model to classify it.'
     : canScan
-      ? `Sends this window’s titles, URLs and domains to ${escapeHtml(status.endpoint || 'the local endpoint')}. Nothing leaves your machine.`
+      ? ''
       : escapeHtml(status.message || 'The service worker has not reported a ready model yet.');
 
   return `
@@ -22,7 +22,7 @@ export function renderScanBanner({ scanning, status = {}, hasSession }) {
       <div class="scan-banner__text">
         <h2 id="scan-title">Scan your current window</h2>
         <p>Reads your open tabs, classifies them with the local model, and builds a review plan. Nothing changes until you approve it.</p>
-        <p class="banner-note${scanning || canScan ? '' : ' banner-note--blocked'}">${icon(canScan || scanning ? 'info' : 'plug', { size: 14 })}<span>${note}</span></p>
+        ${note ? `<p class="banner-note${scanning || canScan ? '' : ' banner-note--blocked'}">${icon(canScan || scanning ? 'info' : 'plug', { size: 14 })}<span>${note}</span></p>` : ''}
         ${hasSession ? `<p class="banner-note">${icon('check', { size: 14 })}<span>A review session is open below. Scanning again replaces it.</span></p>` : ''}
       </div>
       <button type="button" class="btn btn--dark" data-action="scan" data-focus-key="scan" ${disabled ? 'disabled' : ''}>
