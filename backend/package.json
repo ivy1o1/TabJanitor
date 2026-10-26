@@ -5,6 +5,7 @@
   "type": "module",
   "description": "AI-powered browser tab organization extension backed by a configurable local Gemma endpoint (backend/core only).",
   "scripts": {
+    "serve:frontend": "node tools/serve-frontend.js",
     "test": "node --test \"tests/*.test.js\"",
     "smoke:live": "node tests/smoke-live.js"
   },

@@ -4,9 +4,11 @@ AI-powered browser tab organization for Chrome (Manifest V3). TabJanitor reads t
 current window, classifies them with a **local Gemma model**, lets a human review and correct the
 result, and only then creates native tab groups and closes explicitly selected tabs.
 
-**Status: backend / core only.** The service worker and its message contract are implemented and
-tested. There is no UI yet, so the full extension is not complete and cannot be used end to end by
-a person — the frontend has to be built against `docs/API_CONTRACT.md`.
+**Status: backend done, frontend in demo mode.** The service worker and its message contract are
+implemented and tested. The dashboard UI exists and is fully interactive, but it renders **sample
+data** — it is not wired to the backend yet, and it never reads or changes real tabs. Connecting the
+two is the next phase; see [Frontend](#frontend-demo-mode) and
+[`frontend/scripts/source.js`](frontend/scripts/source.js).
 
 ## Workflow
 
@@ -43,6 +45,20 @@ background/
 shared/
   constants.js             categories, colours, limits, message types, error codes, status values
   schemas.js               envelope helpers and field validators
+frontend/
+  dashboard.html           the dashboard page (extension page path for phase 2)
+  styles/tokens.css        design tokens: light + dark themes, nothing else holds a colour
+  styles/dashboard.css     layout and components, mobile-first
+  scripts/dashboard.js     controller: state -> render, event wiring
+  scripts/source.js        THE INTEGRATION BOUNDARY: the only module that supplies data
+  scripts/mock-data.js     sample plan shaped exactly like the SCAN_TABS payload
+  scripts/selectors.js     derived counts, filtering, distribution
+  scripts/theme.js         theme state, chrome.storage.local with a localStorage mirror
+  scripts/components/      sidebar, status header, banner, summary, cards, table, panels, dialog
+  scripts/{store,dom,icons}.js  tiny state container, DOM helpers, inline SVG icons + brand mark
+  assets/tabjanitor-logo-source.jpg  brand artwork; the SVG in icons.js is traced from it
+tools/serve-frontend.js    dev-only static server so the page can run over http://
+tools/logo-trace.html      re-traces the logo artwork into the icons.js path (open it in a browser)
 tests/                     mocked unit tests + a manual live smoke test
 docs/API_CONTRACT.md       request/response contract for the frontend
 config/config.example.json example inference configuration
@@ -129,6 +145,33 @@ metadata cannot be sent anywhere but this machine — a remote `inferenceEndpoin
 client before a request is made, and the manifest does not grant the extension any other host. No key is
 needed for the local path, and no credential is ever committed.
 
+## Frontend (demo mode)
+
+The dashboard recreates the reference design: cream graph-paper surfaces, neo-brutalist borders and
+hard offset shadows, a Bodoni-class display serif over Inter, pastel folder cards, and a real light
+and dark theme.
+
+```bash
+npm run serve:frontend   # http://127.0.0.1:4173/frontend/dashboard.html
+```
+
+It is a plain HTML + CSS + ES-module page with no build step and no dependencies, matching the rest
+of the repository.
+
+**What works locally, on sample data:** search, category filtering (cards and the view selector stay
+in sync), per-row category edits with the AI's original answer preserved, individual closure
+selection with live counts, select-all over the visible rows, Clear All, the row overflow menu, the
+theme toggle with persistence, and the Apply confirmation dialog.
+
+**What deliberately does not happen:** no `fetch`, no `chrome.runtime.sendMessage`, no `chrome.tabs`
+call. The status badge reads **Demo Mode / Not connected** rather than "Ready", the summary numbers
+are labelled sample figures, and confirming the apply dialog only shows a toast that nothing changed.
+
+Everything the UI shows is derived from one object. `frontend/scripts/mock-data.js` builds a sample
+plan that matches the `SCAN_TABS` payload from `docs/API_CONTRACT.md` field for field, and
+`frontend/scripts/source.js` is the only module that hands it to the page. Phase 2 replaces the four
+function bodies in `source.js` with the four message calls; no component changes.
+
 ## Tests
 
 ```bash
@@ -182,7 +225,16 @@ failures, and "no browser mutation before approval".
 
 ## Known limitations
 
-- No frontend. The workflow cannot be completed by a user yet.
+- The frontend is not connected to anything. It renders sample data, so the workflow still cannot be
+  completed end to end by a person.
+- The dashboard has no manifest entry point yet (`action` / `chrome.tabs.create`), which is a manifest
+  change and therefore belongs to the integration phase. Until then it is opened over `http://` or as
+  `chrome-extension://<id>/frontend/dashboard.html`.
+- `dashboard.html` loads its two webfonts from Google Fonts, which is the one remote request the page
+  makes. Self-host the woff2 files before shipping so the interface keeps the project's
+  no-network-by-default property.
+- On phones the table header is hidden, so select-all is desktop-only; per-row closure selection and
+  Clear All remain available.
 - Scan state lives in the service worker's memory only (no persistence was approved), so a worker
   eviction clears the current session; the frontend must re-scan. `STALE_TABS` guards against
   applying an old plan.

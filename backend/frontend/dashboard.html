@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>TabJanitor — Clutter Free, Mind Clear</title>
+
+    <!-- Runs before the stylesheets resolve so the first paint already has the right theme. -->
+    <script src="./scripts/theme-boot.js"></script>
+
+    <!--
+      Display serif + interface sans. These are fetched from Google Fonts, which is the one
+      network dependency on this page; the stacks below fall back to locally installed faces
+      when it is unavailable. For the shipped extension, self-host the woff2 files instead so
+      the page keeps its no-remote-requests property.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;0,6..96,700;0,6..96,900;1,6..96,500&family=Inter:wght@400;500;600;700;800&display=swap" />
+
+    <link rel="stylesheet" href="./styles/tokens.css" />
+    <link rel="stylesheet" href="./styles/dashboard.css" />
+  </head>
+
+  <body>
+    <a class="visually-hidden" href="#tab-table">Skip to the tab list</a>
+
+    <div class="shell">
+      <aside class="sidebar surface" id="sidebar" aria-label="TabJanitor"></aside>
+
+      <div class="statusbar" id="statusbar"></div>
+
+      <main class="main">
+        <div class="hero-row">
+          <div id="scan-banner"></div>
+          <div id="scan-summary"></div>
+        </div>
+
+        <section class="cards" id="category-cards" aria-label="Categories"></section>
+
+        <section class="surface table-panel" id="tab-table" aria-labelledby="table-title">
+          <div class="table-panel__head">
+            <h2 class="view-select" id="table-title">
+              <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5a2 2 0 0 1 2-2h4l2 2.2h8a2 2 0 0 1 2 2v9.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              <label class="visually-hidden" for="view-select">Filter the tab list</label>
+              <select id="view-select" data-focus-key="view-select"></select>
+            </h2>
+            <div class="search-wrap">
+              <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" /><path d="M16.2 16.2 21 21" />
+              </svg>
+              <label class="visually-hidden" for="search">Search sample tabs by title or domain</label>
+              <input id="search" class="field" type="search" placeholder="Search tabs…" autocomplete="off" data-focus-key="search" />
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table>
+              <caption class="visually-hidden">
+                Sample classified tabs from demo data. Changing anything here affects the preview only.
+              </caption>
+              <thead>
+                <tr>
+                  <th class="col-check" scope="col">
+                    <label class="visually-hidden" for="select-all">Select all visible tabs for closure</label>
+                    <input type="checkbox" class="check" id="select-all" data-focus-key="select-all" />
+                  </th>
+                  <th scope="col">Tab</th>
+                  <th scope="col">Domain</th>
+                  <th scope="col">Category</th>
+                  <th scope="col">Confidence</th>
+                  <th scope="col">Action</th>
+                  <th class="col-close" scope="col">Close</th>
+                  <th class="col-menu" scope="col"><span class="visually-hidden">Row actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+
+          <p class="muted" id="row-count" aria-live="polite"></p>
+        </section>
+
+        <section class="surface panel" id="unclassified-panel" aria-labelledby="unclassified-title">
+          <h3 class="panel-title" id="unclassified-title">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.2 16.2 21 21"/></svg>
+            <span>Not classified</span>
+          </h3>
+          <p class="muted">Left visible instead of being guessed into a category.</p>
+          <div id="unclassified-list"></div>
+        </section>
+      </main>
+
+      <aside class="aside" aria-label="Scan overview">
+        <section class="surface panel" aria-labelledby="dist-title">
+          <h3 class="panel-title" id="dist-title">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/></svg>
+            <span>Category Distribution</span>
+          </h3>
+          <ul class="dist" id="distribution"></ul>
+        </section>
+
+        <section class="surface panel" aria-labelledby="selected-title">
+          <h3 class="panel-title" id="selected-title">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5h16M9.5 6.5V4h5v2.5M6.5 6.5 7.6 20a1 1 0 0 0 1 .9h6.8a1 1 0 0 0 1-.9L17.5 6.5"/></svg>
+            <span>Selected for Closure</span>
+          </h3>
+          <p class="selected__big"><span id="selected-count">0</span><small id="selected-total">tabs</small></p>
+          <ul class="dist" id="selected-list"></ul>
+          <button type="button" class="btn btn--sm" data-action="clear-closures" data-focus-key="clear-closures">Clear All</button>
+        </section>
+
+        <section class="surface apply-panel" aria-labelledby="apply-title">
+          <h3 class="panel-title" id="apply-title">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.8 2.9L16.2 9.5"/></svg>
+            <span>Ready to apply?</span>
+          </h3>
+          <p>You&rsquo;ll review the groups and the tabs you selected before anything changes.</p>
+          <p class="muted" id="apply-summary"></p>
+          <button type="button" class="btn btn--primary" data-action="open-apply-dialog" data-focus-key="apply">
+            Apply Organization
+          </button>
+        </section>
+      </aside>
+
+      <footer class="footer" id="footer"></footer>
+    </div>
+
+    <dialog class="demo-dialog" id="apply-dialog" aria-labelledby="dialog-title"></dialog>
+
+    <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
+
+    <script type="module" src="./scripts/dashboard.js"></script>
+  </body>
+</html>

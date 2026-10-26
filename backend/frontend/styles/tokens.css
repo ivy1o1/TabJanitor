@@ -1,0 +1,189 @@
+/*
+ * TabJanitor design tokens.
+ *
+ * Every colour, border, shadow and grid value lives here and nowhere else, so the
+ * light and dark themes are two data sets rather than two stylesheets. Components
+ * only ever reference var(--token).
+ */
+
+:root {
+  /* Typography */
+  --font-display: 'Bodoni Moda', 'DM Serif Display', 'Iowan Old Style', 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-ui: 'Inter', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: clamp(1.05rem, 0.98rem + 0.35vw, 1.25rem);
+  --text-xl: clamp(1.35rem, 1.15rem + 0.9vw, 1.9rem);
+  --text-2xl: clamp(1.7rem, 1.35rem + 1.6vw, 2.6rem);
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 22px;
+  --space-6: 30px;
+  --space-7: 42px;
+
+  /* Neo-brutalist structure */
+  --border-w: 2px;
+  --border-w-thick: 3px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --shadow-offset: 6px;
+  --shadow-offset-sm: 3px;
+
+  --sidebar-w: 262px;
+  --aside-w: 320px;
+  --grid-size: 22px;
+
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* ------------------------------------------------------------------ light */
+:root,
+[data-theme='light'] {
+  --paper: #f3e6d0;
+  --grid: rgba(122, 89, 48, 0.13);
+  --grid-strong: rgba(122, 89, 48, 0.22);
+
+  --surface: #f8eeda;
+  --surface-raised: #fdf6e9;
+  --surface-sunken: #ecdcc0;
+
+  --ink: #14110f;
+  --ink-secondary: #574a3c;
+  --ink-muted: #7d6c58;
+  --ink-invert: #fbf3e4;
+
+  --line: #14110f;
+  --line-soft: rgba(20, 17, 15, 0.16);
+  --shadow-color: #14110f;
+  --ring: #14110f;
+
+  --accent: #f7c948;
+  --accent-strong: #f0b429;
+  --accent-ink: #14110f;
+
+  /* Brand mark: the reference logo is a light glyph on an ink tile. */
+  --brand-tile: #14110f;
+  --brand-mark: #fdf6e9;
+  --brand-line: #14110f;
+
+  --slogan-bg: #dcbcf5;
+  --slogan-ink: #2b133f;
+  --slogan-deco: rgba(43, 19, 63, 0.55);
+  /* light = candy stripes, dark = starfield (see .slogan) */
+  --slogan-pattern: repeating-linear-gradient(135deg, transparent 0 7px, rgba(43, 19, 63, 0.13) 7px 9px);
+  --slogan-pattern-size: auto;
+
+  --panel-dark-bg: #16131a;
+  --panel-dark-ink: #f6efe2;
+  --panel-dark-muted: #a99fb2;
+  --panel-dark-line: #000000;
+
+  --field-bg: #fdf6e9;
+  --field-ink: #14110f;
+  --field-placeholder: #9c8974;
+
+  --ok: #1f7a4d;
+  --ok-bg: #c7ecd6;
+  --warn: #a25c00;
+  --warn-bg: #f7ddb0;
+  --neutral: #4b4b52;
+  --neutral-bg: #ded8cc;
+  --danger: #a11f1f;
+  --danger-bg: #f6cfc9;
+
+  --cat-development-bg: #f9dd7e;
+  --cat-development-ink: #3d2c00;
+  --cat-study-bg: #aee6b6;
+  --cat-study-ink: #123a1c;
+  --cat-research-bg: #93e2dd;
+  --cat-research-ink: #0c3a37;
+  --cat-shopping-bg: #fbc99a;
+  --cat-shopping-ink: #4a2a06;
+  --cat-entertainment-bg: #f9aede;
+  --cat-entertainment-ink: #4a0f36;
+  --cat-other-bg: #ded8cc;
+  --cat-other-ink: #37322a;
+  --cat-junk-bg: #cdb6f2;
+  --cat-junk-ink: #2c1358;
+}
+
+/* ------------------------------------------------------------------- dark
+ * Not an inversion: surfaces stay layered, category colours are muted and
+ * darkened so their text keeps contrast, and the grid is dimmed but present.
+ */
+[data-theme='dark'] {
+  --paper: #17130f;
+  --grid: rgba(196, 164, 122, 0.07);
+  --grid-strong: rgba(196, 164, 122, 0.13);
+
+  --surface: #221c17;
+  --surface-raised: #2b241d;
+  --surface-sunken: #1b1611;
+
+  --ink: #f2e8d9;
+  --ink-secondary: #c3b4a1;
+  --ink-muted: #94836f;
+  --ink-invert: #17130f;
+
+  --line: #0a0806;
+  --line-soft: rgba(242, 232, 217, 0.16);
+  --shadow-color: #0a0806;
+  --ring: #f7c948;
+
+  --accent: #f7c948;
+  --accent-strong: #e0ae25;
+  --accent-ink: #17130f;
+
+  --brand-tile: #0d0a08;
+  --brand-mark: #f6efe2;
+  --brand-line: #4a3f35;
+
+  --slogan-bg: #4a2c66;
+  --slogan-ink: #f0dfff;
+  --slogan-deco: rgba(240, 223, 255, 0.8);
+  --slogan-pattern: radial-gradient(circle, rgba(240, 223, 255, 0.3) 1px, transparent 1.7px);
+  --slogan-pattern-size: 15px 15px;
+
+  --panel-dark-bg: #0d0b0f;
+  --panel-dark-ink: #f6efe2;
+  --panel-dark-muted: #a2989f;
+  --panel-dark-line: #000000;
+
+  --field-bg: #1b1611;
+  --field-ink: #f2e8d9;
+  --field-placeholder: #7d6f5f;
+
+  --ok: #7fd8a6;
+  --ok-bg: #143425;
+  --warn: #f0b95e;
+  --warn-bg: #3a2708;
+  --neutral: #b9b1a6;
+  --neutral-bg: #2e2822;
+  --danger: #f2938a;
+  --danger-bg: #3d1512;
+
+  --cat-development-bg: #6a5314;
+  --cat-development-ink: #ffe8a3;
+  --cat-study-bg: #24512f;
+  --cat-study-ink: #c4f0cc;
+  --cat-research-bg: #17514c;
+  --cat-research-ink: #b6f0e9;
+  --cat-shopping-bg: #63390f;
+  --cat-shopping-ink: #ffd9b0;
+  --cat-entertainment-bg: #601f46;
+  --cat-entertainment-ink: #ffd0ea;
+  --cat-other-bg: #3a342c;
+  --cat-other-ink: #e4dccd;
+  --cat-junk-bg: #3b2a63;
+  --cat-junk-ink: #ded0ff;
+}

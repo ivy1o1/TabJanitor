@@ -1,0 +1,225 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>logo trace</title>
+<style>
+  body { background: #f6efe2; font: 14px/1.5 system-ui, sans-serif; margin: 24px; }
+  .row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .cell { border: 2px solid #191512; padding: 12px; background: #fffdf7; }
+  canvas { image-rendering: pixelated; }
+  pre { max-height: 60vh; overflow: auto; background: #191512; color: #f6efe2; padding: 12px; }
+  svg.preview { display: block; }
+</style>
+<h1>TabJanitor logo trace</h1>
+<div class="row">
+  <div class="cell">source <canvas id="src" width="256" height="256"></canvas></div>
+  <div class="cell">mask <canvas id="mask" width="256" height="256"></canvas></div>
+  <div class="cell">reconstruction 28px <div id="recon" style="color:#191512"></div></div>
+  <div class="cell">reconstruction 96px <div id="reconBig" style="color:#191512"></div></div>
+</div>
+<h2>stats</h2>
+<pre id="stats"></pre>
+<h2>svg</h2>
+<pre id="out"></pre>
+<script>
+  const SIZE = 256;
+  const EPS = 1.1;
+  const THRESHOLD = 128;
+
+  function seg(a, b) {
+    return [a, b];
+  }
+
+  async function run() {
+    const img = new Image();
+    img.src = '../frontend/assets/tabjanitor-logo-source.jpg?' + Date.now();
+    await img.decode();
+
+    const src = document.getElementById('src');
+    const sctx = src.getContext('2d', { willReadFrequently: true });
+    sctx.drawImage(img, 0, 0, SIZE, SIZE);
+    const data = sctx.getImageData(0, 0, SIZE, SIZE).data;
+
+    // white glyph on black ground -> inside = bright
+    const inside = new Uint8Array(SIZE * SIZE);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      const luma = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
+      inside[p] = luma >= THRESHOLD ? 1 : 0;
+    }
+
+    const mctx = document.getElementById('mask').getContext('2d');
+    const mimg = mctx.createImageData(SIZE, SIZE);
+    for (let p = 0, i = 0; p < inside.length; p++, i += 4) {
+      const on = inside[p];
+      mimg.data[i] = on ? 255 : 25;
+      mimg.data[i + 1] = on ? 250 : 21;
+      mimg.data[i + 2] = on ? 244 : 18;
+      mimg.data[i + 3] = 255;
+    }
+    mctx.putImageData(mimg, 0, 0);
+
+    const at = (x, y) => (x < 0 || y < 0 || x >= SIZE || y >= SIZE ? 0 : inside[y * SIZE + x]);
+
+    // ---- marching squares over the corner lattice, undirected segments ----
+    const TOP = (i, j) => [i + 0.5, j];
+    const RIGHT = (i, j) => [i + 1, j + 0.5];
+    const BOTTOM = (i, j) => [i + 0.5, j + 1];
+    const LEFT = (i, j) => [i, j + 0.5];
+
+    const segments = [];
+    for (let j = 0; j < SIZE - 1; j++) {
+      for (let i = 0; i < SIZE - 1; i++) {
+        const tl = at(i, j) ? 8 : 0;
+        const tr = at(i + 1, j) ? 4 : 0;
+        const br = at(i + 1, j + 1) ? 2 : 0;
+        const bl = at(i, j + 1) ? 1 : 0;
+        const c = tl | tr | br | bl;
+        switch (c) {
+          case 1: segments.push(seg(LEFT(i, j), BOTTOM(i, j))); break;
+          case 2: segments.push(seg(BOTTOM(i, j), RIGHT(i, j))); break;
+          case 3: segments.push(seg(LEFT(i, j), RIGHT(i, j))); break;
+          case 4: segments.push(seg(TOP(i, j), RIGHT(i, j))); break;
+          case 5: segments.push(seg(TOP(i, j), LEFT(i, j)), seg(BOTTOM(i, j), RIGHT(i, j))); break;
+          case 6: segments.push(seg(TOP(i, j), BOTTOM(i, j))); break;
+          case 7: segments.push(seg(TOP(i, j), LEFT(i, j))); break;
+          case 8: segments.push(seg(TOP(i, j), LEFT(i, j))); break;
+          case 9: segments.push(seg(TOP(i, j), BOTTOM(i, j))); break;
+          case 10: segments.push(seg(TOP(i, j), RIGHT(i, j)), seg(LEFT(i, j), BOTTOM(i, j))); break;
+          case 11: segments.push(seg(TOP(i, j), RIGHT(i, j))); break;
+          case 12: segments.push(seg(LEFT(i, j), RIGHT(i, j))); break;
+          case 13: segments.push(seg(BOTTOM(i, j), RIGHT(i, j))); break;
+          case 14: segments.push(seg(LEFT(i, j), BOTTOM(i, j))); break;
+          default: break;
+        }
+      }
+    }
+
+    // ---- join segments into closed loops ----
+    const key = (p) => `${p[0].toFixed(1)}:${p[1].toFixed(1)}`;
+    const adj = new Map();
+    const link = (a, b) => {
+      const k = key(a);
+      if (!adj.has(k)) adj.set(k, []);
+      adj.get(k).push(b);
+    };
+    segments.forEach(([a, b]) => { link(a, b); link(b, a); });
+
+    const used = new Set();
+    const startKeys = [...adj.keys()];
+    const loops = [];
+    for (const startKey of startKeys) {
+      if (used.has(startKey)) continue;
+      used.add(startKey);
+      let current = parseKey(startKey);
+      const loop = [current];
+      let guard = 0;
+      let closed = false;
+      while (guard++ < 1e6) {
+        const nexts = adj.get(key(current)) || [];
+        const next = nexts.find((n) => !used.has(edgeKey(current, n)));
+        if (!next) break;
+        used.add(edgeKey(current, next));
+        used.add(edgeKey(next, current));
+        current = next;
+        loop.push(current);
+        if (key(current) === startKey) { closed = true; break; }
+      }
+      if (closed) loops.push({ points: loop.slice(0, -1), closed });
+    }
+
+    function parseKey(k) {
+      const [x, y] = k.split(':').map(Number);
+      return [x, y];
+    }
+    function edgeKey(a, b) {
+      const ka = key(a), kb = key(b);
+      return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+    }
+
+    // ---- Ramer-Douglas-Peucker ----
+    function rdp(points, epsilon) {
+      if (points.length < 3) return points;
+      const first = points[0];
+      const last = points[points.length - 1];
+      let maxDist = -1;
+      let index = 0;
+      for (let i = 1; i < points.length - 1; i++) {
+        const d = perp(points[i], first, last);
+        if (d > maxDist) { maxDist = d; index = i; }
+      }
+      if (maxDist > epsilon) {
+        const a = rdp(points.slice(0, index + 1), epsilon);
+        const b = rdp(points.slice(index), epsilon);
+        return a.slice(0, -1).concat(b);
+      }
+      return [first, last];
+    }
+    function perp(p, a, b) {
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const len = Math.hypot(dx, dy);
+      if (len === 0) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+      return Math.abs(dy * p[0] - dx * p[1] + b[0] * a[1] - b[1] * a[0]) / len;
+    }
+    function area(loop) {
+      let s = 0;
+      for (let i = 0; i < loop.length; i++) {
+        const a = loop[i], b = loop[(i + 1) % loop.length];
+        s += a[0] * b[1] - b[0] * a[1];
+      }
+      return s / 2;
+    }
+
+    const MIN_LOOP_AREA = 30;
+    const simplified = loops
+      .map((l) => rdp(l.points, EPS))
+      .filter((l) => l.length >= 3 && Math.abs(area(l)) >= MIN_LOOP_AREA)
+      .sort((a, b) => Math.abs(area(b)) - Math.abs(area(a)));
+
+    // ---- normalize the union bbox into a 24x24 box with padding ----
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const l of simplified) for (const [x, y] of l) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    const pad = 1.6;
+    const spanX = maxX - minX, spanY = maxY - minY;
+    const scale = (24 - pad * 2) / Math.max(spanX, spanY);
+    const offX = (24 - spanX * scale) / 2;
+    const offY = (24 - spanY * scale) / 2;
+
+    const fmt = (n) => (Math.round(n * 100) / 100).toString().replace(/\.0+$/, '');
+    let d = '';
+    for (const l of simplified) {
+      d += 'M';
+      l.forEach(([x, y], i) => {
+        const nx = (x - minX) * scale + offX;
+        const ny = (y - minY) * scale + offY;
+        d += `${i ? 'L' : ''}${fmt(nx)} ${fmt(ny)}`;
+        if (i < l.length - 1) d += ' ';
+      });
+      d += 'Z';
+    }
+
+    const svg = `<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" fill-rule="evenodd" xmlns="http://www.w3.org/2000/svg"><path d="${d}"/></svg>`;
+    document.getElementById('out').textContent = svg;
+    document.getElementById('recon').innerHTML = svg.replace('width="24" height="24"', 'class="preview" width="28" height="28"');
+    document.getElementById('reconBig').innerHTML = svg.replace('width="24" height="24"', 'class="preview" width="96" height="96"');
+    document.getElementById('stats').textContent = [
+      `segments: ${segments.length}`,
+      `closed loops: ${loops.length}, raw points: ${loops.reduce((n, l) => n + l.points.length, 0)}`,
+      `kept loops: ${simplified.length}`,
+      `loop areas: ${simplified.map((l) => Math.round(Math.abs(area(l)))).join(', ')}`,
+      `loop points: ${simplified.map((l) => l.length).join(', ')}`,
+      `bbox: ${minX.toFixed(1)},${minY.toFixed(1)} ${spanX.toFixed(1)}x${spanY.toFixed(1)}`,
+      `scale: ${scale.toFixed(4)}`,
+      `raw chars: ${d.length}`,
+    ].join('\n');
+    window.__TRACE = { svg, d, stats: document.getElementById('stats').textContent };
+  }
+
+  run().catch((error) => {
+    document.getElementById('stats').textContent = `ERROR ${error && error.message ? error.message : error}`;
+    window.__TRACE = { error: String(error) };
+  });
+</script>
