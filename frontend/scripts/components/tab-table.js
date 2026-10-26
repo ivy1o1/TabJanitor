@@ -7,7 +7,8 @@ import { escapeHtml, monogram } from '../dom.js';
  *
  * Column order mirrors the contract's item fields: title/domain are the sanitized
  * snapshot values, `category` is editable, `originalCategory` is what the model said,
- * and only `closeSelected` may ever become a real closure in phase 2.
+ * and `closeSelected` is the only field that becomes a real closure — on apply, in the
+ * background organizer, never from here.
  */
 function renderRow(item, openMenuTabId) {
   const band = confidenceBand(item.confidence);
@@ -71,7 +72,7 @@ function renderRow(item, openMenuTabId) {
             <li><button type="button" class="menu__item" data-action="keep-open" data-tab-id="${item.tabId}">
               ${icon('check', { size: 15 })}<span>Keep this tab open</span></button></li>
             <li class="menu__note">${escapeHtml(item.explanation || 'No reason recorded.')}</li>
-            <li class="menu__note">Demo action — nothing happens to your browser.</li>
+            <li class="menu__note">Saved to the review session only. Your browser changes when you apply.</li>
           </ul>
         </div>
       </td>
@@ -83,9 +84,9 @@ function renderRow(item, openMenuTabId) {
 export function renderRows(state) {
   const rows = filterItems(state.scan, { search: state.search, category: state.categoryFilter });
   if (!rows.length) {
-    return `<tr><td colspan="8"><p class="empty-state">No sample tabs match “${escapeHtml(state.search)}”${
-      state.categoryFilter ? ` in ${escapeHtml(state.categoryFilter)}` : ''
-    }.</p></td></tr>`;
+    const filterWord = state.categoryFilter ? ` in ${escapeHtml(state.categoryFilter)}` : '';
+    const needle = state.search ? `“${escapeHtml(state.search)}”` : 'any filter';
+    return `<tr><td colspan="8"><p class="empty-state">No classified tab matches ${needle}${filterWord}.</p></td></tr>`;
   }
   return rows.map((item) => renderRow(item, state.openMenuTabId)).join('');
 }

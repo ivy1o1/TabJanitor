@@ -1,7 +1,20 @@
 import { icon } from '../icons.js';
 import { CATEGORY_ICON, cardCategories, categoryClass } from '../selectors.js';
-import { CATEGORY_BLURBS } from '../mock-data.js';
 import { escapeHtml } from '../dom.js';
+
+/**
+ * Static descriptions of the seven contract categories. `Junk / Review` deliberately
+ * says nothing about closing: the backend never infers a closure from a category.
+ */
+const CATEGORY_BLURBS = {
+  Development: 'Docs, code, packages',
+  Study: 'Courses, notes, tutorials',
+  Research: 'Papers, references, reading',
+  Shopping: 'Products, comparisons',
+  Entertainment: 'Video, music, feeds',
+  Other: 'Real tab, no clear fit',
+  'Junk / Review': 'Low signal — never closed for you',
+};
 
 /**
  * CategoryCards: folder-shaped cards that double as the category filter.

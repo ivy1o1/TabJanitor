@@ -98,6 +98,10 @@
   --panel-dark-ink: #f6efe2;
   --panel-dark-muted: #a99fb2;
   --panel-dark-line: #000000;
+  /* The apply panel stays dark in both themes, so its state colors are light-on-dark here. */
+  --panel-dark-ok: #7fd8a6;
+  --panel-dark-warn: #f0b95e;
+  --panel-dark-danger: #f2938a;
   /* The apply panel glows in the hue of its own call to action. */
   --apply-glow: rgba(247, 201, 72, 0.4);
   --apply-glow-strong: rgba(247, 201, 72, 0.68);
@@ -190,6 +194,9 @@
   --panel-dark-ink: #f6efe2;
   --panel-dark-muted: #a2989f;
   --panel-dark-line: #000000;
+  --panel-dark-ok: #7fd8a6;
+  --panel-dark-warn: #f0b95e;
+  --panel-dark-danger: #f2938a;
   --apply-glow: rgba(247, 201, 72, 0.32);
   --apply-glow-strong: rgba(247, 201, 72, 0.55);
 
