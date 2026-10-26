@@ -36,19 +36,18 @@ export function renderApplyDialog(scan, syncState = {}) {
   const lost = syncState.sessionLost === true;
   const unsaved = (syncState.pendingCount || 0) + (syncState.unsyncedCount || 0);
   const edited = planItems(scan).filter((item) => item.userEdited).length;
-  const windowLabel = Number.isFinite(scan.windowId) ? `window ${scan.windowId}` : 'this window';
 
   const warning = blocked
     ? `<p class="badge badge--danger">${icon('info', { size: 14 })}<span>Blocked: ${
-        escapeHtml(syncState.message || `${unsaved} change(s) are not saved to the session.`)
+        escapeHtml(syncState.message || `${unsaved} change(s) are not saved to the review.`)
       }</span></p>
-       <p>Nothing was applied. Save the pending changes (or reload the session plan) and open this review again.</p>`
+       <p>Nothing was applied and your browser is unchanged. ${
+         unsaved ? 'Save the pending changes, then open this review again.' : 'Re-check the status, then open this review again.'
+       }</p>`
     : lost
-      ? `<p class="badge badge--danger">${icon('info', { size: 14 })}<span>Session expired</span></p>
-         <p>${escapeHtml(syncState.message || 'The service worker no longer holds this session.')} Scan the window again before applying.</p>`
-      : `<p class="badge badge--warn">${icon('info', { size: 14 })}<span>This changes real tabs</span></p>
-         <p>On confirmation the extension sends <code>APPLY_ORGANIZATION</code> with your approval, and the
-         background organizer groups and closes tabs in ${escapeHtml(windowLabel)}. Nothing else can change your browser.</p>`;
+      ? `<p class="badge badge--danger">${icon('info', { size: 14 })}<span>Review expired</span></p>
+         <p>${escapeHtml(syncState.message || 'This review is no longer live. Scan the window again before applying.')}</p>`
+      : `<p class="badge badge--warn">${icon('info', { size: 14 })}<span>This changes real tabs</span></p>`;
 
   return `
     <div class="dialog__inner">
@@ -94,6 +93,7 @@ export function renderApplyResult(result = {}, { partial = false, message = '' }
 
   const groupWord = groups.length === 1 ? 'group' : 'groups';
   const tabWord = closures.length === 1 ? 'tab' : 'tabs';
+  const changed = groups.length > 0 || closures.length > 0 || stale.length > 0;
 
   return `
     <div class="dialog__inner">
@@ -144,7 +144,7 @@ export function renderApplyResult(result = {}, { partial = false, message = '' }
                  .join('')}</ul>`
             : ''
         }
-        <p class="muted">This review is now spent: the browser has changed. Scan the window again for a fresh plan.</p>
+        <p class="muted">This review can not be applied again${changed ? ': your browser has changed' : ''}. Scan the window for a fresh plan.</p>
       </div>
       <div class="dialog__foot">
         <button type="button" class="btn btn--primary" data-action="close-dialog" data-focus-key="dialog-close">Done</button>

@@ -6,14 +6,45 @@ import { applyPlanEdits, buildReviewPlan, summary } from './review-plan.js';
 import { applyOrganization } from './organizer.js';
 import { checkReadiness, readConfig } from './ai-client.js';
 
-// Only this session's plan is addressable, so a stale request cannot apply an old plan.
-export function createState() {
-  return { current: null };
+/**
+ * Only this session's plan is addressable, so a stale request cannot apply an old plan.
+ * `store` keeps that session readable after the worker is terminated; without one the handler
+ * behaves exactly as it did when the session lived only in memory.
+ */
+export function createState({ store } = {}) {
+  return { current: null, store: store ?? null, restoring: null };
+}
+
+const SESSION_MESSAGE_TYPES = [
+  MESSAGE_TYPES.GET_REVIEW_PLAN,
+  MESSAGE_TYPES.UPDATE_REVIEW_PLAN,
+  MESSAGE_TYPES.APPLY_ORGANIZATION,
+];
+
+/**
+ * Manifest V3 stops an idle service worker, so the plan the dashboard is looking at may have
+ * outlived the state it was built from. Read the stored session back once, before any request
+ * that names a session, and never on top of a session this worker already holds.
+ */
+async function restoreSession(state) {
+  if (!state.store || state.current) return;
+  if (!state.restoring) {
+    state.restoring = state.store.load().then((entry) => {
+      if (entry && !state.current) state.current = entry;
+      state.restoring = null;
+    });
+  }
+  await state.restoring;
+}
+
+/** Best-effort: the request already succeeded in memory, so storage must not fail it. */
+async function rememberSession(state) {
+  if (state.store) await state.store.save(state.current);
 }
 
 function requireSession(state, sessionId) {
   if (!state.current) {
-    throw appError(ERROR_CODES.INVALID_REQUEST, 'No scan has been run yet.');
+    throw appError(ERROR_CODES.INVALID_REQUEST, 'This review is no longer live. Scan the window again before applying.');
   }
   if (typeof sessionId !== 'string' || sessionId.length === 0) {
     throw appError(ERROR_CODES.INVALID_REQUEST, 'A sessionId is required for this request.');
@@ -56,6 +87,7 @@ async function handleScan({ payload, state, chromeRef, config, fetchImpl }) {
     plan,
   };
   state.current = stateEntry;
+  await rememberSession(state);
   return {
     data: {
       sessionId: snapshot.sessionId,
@@ -148,6 +180,7 @@ export async function handleMessage({ message, state, chromeRef, config, fetchIm
     }
     const payload = message.payload ?? {};
     if (!isPlainObject(payload)) throw appError(ERROR_CODES.INVALID_REQUEST, 'The message payload must be an object.');
+    if (SESSION_MESSAGE_TYPES.includes(message.type)) await restoreSession(state);
     switch (message.type) {
       case MESSAGE_TYPES.SCAN_TABS: {
         const { data } = await handleScan({ payload, state, chromeRef, config, fetchImpl });
@@ -161,6 +194,7 @@ export async function handleMessage({ message, state, chromeRef, config, fetchIm
         const entry = requireSession(state, payload.sessionId);
         const { plan, rejectedMoves, rejectedClosures } = applyPlanEdits(entry.plan, payload);
         entry.plan = plan;
+        await rememberSession(state);
         return ok({ plan: { ...plan, summary: summary(plan) }, rejectedMoves, rejectedClosures });
       }
       case MESSAGE_TYPES.APPLY_ORGANIZATION: {
@@ -173,6 +207,9 @@ export async function handleMessage({ message, state, chromeRef, config, fetchIm
           // Some operations failed: the frontend needs both the result and the failure code.
           throw appError(ERROR_CODES.PARTIAL_APPLY_FAILURE, 'Some group or close operations did not complete.', result);
         }
+        // The browser has changed, so this review is spent: drop the stored copy and let this
+        // worker answer for the rest of its life. A restarted worker must not resurrect it.
+        if (state.store) await state.store.clear();
         return ok(result);
       }
       case MESSAGE_TYPES.GET_STATUS: {

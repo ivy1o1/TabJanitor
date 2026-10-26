@@ -68,7 +68,7 @@ export async function applyOrganization({ plan, chromeRef }) {
     const tabIds = entries.map((entry) => entry.item.tabId);
     let groupId;
     try {
-      groupId = await chromeRef.tabs.group({ tabIds, createProps: { windowId } });
+      groupId = await chromeRef.tabs.group({ tabIds, createProperties: { windowId } });
     } catch (error) {
       failures.push({ operation: 'group', category, tabIds, reason: String(error?.message || error) });
       continue;

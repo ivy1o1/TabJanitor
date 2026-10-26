@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createState, handleMessage } from '../background/message-handler.js';
+import { createSessionStore } from '../background/session-store.js';
 import { MESSAGE_TYPES, STATUS_VALUES } from '../shared/constants.js';
 import { chatResponse, chatResponseForPrompt, fakeChrome, fakeFetch, jsonResponse, sampleTabs } from './helpers.js';
 
@@ -18,6 +19,24 @@ function scanFixture(tabs = sampleTabs(), options = {}) {
   const state = createState();
   return { state, chromeRef, calls, fetchImpl };
 }
+
+/** A worker that keeps its review in session storage, which is what the extension does. */
+function storedFixture(tabs = sampleTabs(), options = {}) {
+  const fixture = fakeChrome(tabs, options);
+  return {
+    ...fixture,
+    state: createState({ store: createSessionStore(fixture.chromeRef) }),
+    fetchImpl: fakeFetch([['/health', jsonResponse({ status: 'ok' })], ['/v1/chat/completions', options.reply || fixtureReply()]]),
+  };
+}
+
+const ask = (fixture, type, payload = {}) => handleMessage({
+  message: { type, payload },
+  state: fixture.state,
+  chromeRef: fixture.chromeRef,
+  config: CONFIG,
+  fetchImpl: fixture.fetchImpl,
+});
 
 test('SCAN_TABS returns a reviewable plan built from real tabs', async () => {
   const fixture = scanFixture();
@@ -385,4 +404,87 @@ test('a non-loopback endpoint is refused before any tab data is sent', async () 
   assert.equal(response.ok, false);
   assert.equal(response.error.code, 'CONFIG_MISSING');
   assert.equal(fetchImpl.requests.length, 0);
+});
+
+/* ------------------------------------------------------- the review outlives the worker */
+
+/** The same browser and the same session storage, with a worker that remembers nothing. */
+function restartedWorker(previous, tabs = sampleTabs()) {
+  const next = fakeChrome(tabs, { sessionStorage: previous.sessionArea });
+  return {
+    ...next,
+    state: createState({ store: createSessionStore(next.chromeRef) }),
+    fetchImpl: fakeFetch([['/health', jsonResponse({ status: 'ok' })], ['/v1/chat/completions', fixtureReply()]]),
+  };
+}
+
+test('a scan is stored so a restarted worker can still apply it', async () => {
+  const fixture = storedFixture();
+  const scan = await ask(fixture, MESSAGE_TYPES.SCAN_TABS);
+  assert.equal(scan.ok, true, JSON.stringify(scan.error));
+  assert.equal(fixture.sessionArea['tabjanitor.session'].sessionId, scan.data.sessionId);
+
+  const restarted = restartedWorker(fixture);
+  assert.equal(restarted.state.current, null, 'the restarted worker holds nothing in memory');
+  const applied = await ask(restarted, MESSAGE_TYPES.APPLY_ORGANIZATION, { sessionId: scan.data.sessionId, approve: true });
+  assert.equal(applied.ok, true, JSON.stringify(applied.error));
+  assert.deepEqual(applied.data.groups.map((group) => group.category).sort(), ['Development', 'Shopping', 'Study']);
+  assert.deepEqual(restarted.calls.grouped, [[1], [2], [3]], 'the approved tabs were really grouped');
+  assert.deepEqual(fixture.calls.grouped, [], 'nothing was applied twice');
+});
+
+test('edits made before a restart are the edits applied after it', async () => {
+  const fixture = storedFixture();
+  const scan = await ask(fixture, MESSAGE_TYPES.SCAN_TABS);
+  const sessionId = scan.data.sessionId;
+  const updated = await ask(fixture, MESSAGE_TYPES.UPDATE_REVIEW_PLAN, {
+    sessionId,
+    moves: [{ tabId: 1, category: 'Junk / Review' }],
+    closures: [{ tabId: 3, closeSelected: true }],
+  });
+  assert.equal(updated.ok, true);
+
+  const restarted = restartedWorker(fixture);
+  const plan = await ask(restarted, MESSAGE_TYPES.GET_REVIEW_PLAN, { sessionId });
+  assert.equal(plan.data.plan.items.find((item) => item.tabId === 1).category, 'Junk / Review');
+  assert.equal(plan.data.plan.summary.closureCount, 1);
+
+  const applied = await ask(restarted, MESSAGE_TYPES.APPLY_ORGANIZATION, { sessionId, approve: true });
+  assert.deepEqual(applied.data.groups.map((group) => group.category).sort(), ['Junk / Review', 'Study']);
+  assert.deepEqual(restarted.calls.removed, [3], 'only the tab selected before the restart closed');
+});
+
+test('a stored review whose window is gone is reported as stale instead of applied', async () => {
+  const fixture = storedFixture();
+  const scan = await ask(fixture, MESSAGE_TYPES.SCAN_TABS);
+  const restarted = restartedWorker(fixture, []);
+  const applied = await ask(restarted, MESSAGE_TYPES.APPLY_ORGANIZATION, { sessionId: scan.data.sessionId, approve: true });
+  assert.equal(applied.ok, true);
+  assert.equal(applied.data.groups.length, 0);
+  assert.equal(applied.data.stale.length, 3);
+  assert.deepEqual(restarted.calls.grouped, []);
+  assert.deepEqual(restarted.calls.removed, []);
+});
+
+test('an applied review is not kept for the next restart', async () => {
+  const fixture = storedFixture();
+  const scan = await ask(fixture, MESSAGE_TYPES.SCAN_TABS);
+  const applied = await ask(fixture, MESSAGE_TYPES.APPLY_ORGANIZATION, { sessionId: scan.data.sessionId, approve: true });
+  assert.equal(applied.ok, true);
+  assert.equal(fixture.sessionArea['tabjanitor.session'], undefined);
+
+  const restarted = restartedWorker(fixture);
+  const refused = await ask(restarted, MESSAGE_TYPES.APPLY_ORGANIZATION, { sessionId: scan.data.sessionId, approve: true });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.error.code, 'INVALID_REQUEST');
+  assert.deepEqual(restarted.calls.grouped, []);
+});
+
+test('a review the worker never got is refused in plain words', async () => {
+  const fixture = storedFixture();
+  const response = await ask(fixture, MESSAGE_TYPES.GET_REVIEW_PLAN, { sessionId: 'made-up-session' });
+  assert.equal(response.ok, false);
+  assert.equal(response.error.code, 'INVALID_REQUEST');
+  assert.doesNotMatch(response.error.message, /[A-Z_]{5,}/, 'no error code or message type in the user-facing text');
+  assert.match(response.error.message, /scan the window again/i);
 });

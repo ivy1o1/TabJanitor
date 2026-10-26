@@ -15,7 +15,7 @@ export function renderScanBanner({ scanning, status = {}, hasSession }) {
     ? 'Reading this window and asking the local model to classify it.'
     : canScan
       ? ''
-      : escapeHtml(status.message || 'The service worker has not reported a ready model yet.');
+      : escapeHtml(status.message || 'The local model has not reported in yet.');
 
   return `
     <section class="surface scan-banner" aria-labelledby="scan-title">

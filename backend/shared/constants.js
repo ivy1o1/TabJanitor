@@ -14,7 +14,7 @@ export const CATEGORY_COLORS = {
   Research: 'purple',
   Shopping: 'orange',
   Entertainment: 'yellow',
-  Other: 'gray',
+  Other: 'grey', // Chrome's enum spells this 'grey', not 'gray'
   'Junk / Review': 'red',
 };
 

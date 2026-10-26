@@ -84,7 +84,7 @@ async function send(type, payload = {}) {
   } catch (error) {
     throw new SourceError(
       CLIENT_ERROR_CODES.MESSAGING_FAILED,
-      `The service worker did not answer: ${text(error?.message, 'unknown error')}`,
+      `TabJanitor did not answer (${text(error?.message, 'unknown error')}). Nothing was read or changed.`,
     );
   }
   if (!isPlainObject(response) || typeof response.ok !== 'boolean') {

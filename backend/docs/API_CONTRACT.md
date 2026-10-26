@@ -30,7 +30,7 @@ The frontend never needs to know how a model request is built or how model outpu
 
 | Code | Meaning |
 | --- | --- |
-| `INVALID_REQUEST` | Unknown message type, malformed payload, missing `sessionId`, or an apply request without `approve: true`. |
+| `INVALID_REQUEST` | Unknown message type, malformed payload, missing `sessionId`, an apply request without `approve: true`, or no live review (its session was never stored or has gone). |
 | `UNTRUSTED_SENDER` | The message did not come from an extension page of this extension ID. |
 | `UNSUPPORTED_TABS` | A requested operation targeted a tab the extension may not classify or mutate (`chrome://` and similar). |
 | `CONFIG_MISSING` | No inference endpoint configured, or the configured value is not a valid, path-less, credential-free `http` URL on `127.0.0.1` / `localhost`. TabJanitor only talks to a local model, so any other host is refused before a request is made. |
@@ -134,6 +134,28 @@ Read-only. Never sends tab metadata.
 | `message` | string | Human-readable reason. |
 | `probe` | object | On `ready`: the result of one minimal synthetic classification (`{ category, confidence, serverModel, tokensPerSecond }`). The probe contains fixture data only, never browser data. |
 
+## Session lifetime
+
+`SCAN_TABS` answers with a `sessionId`, and the snapshot and plan behind it are mirrored to
+`chrome.storage.session` under the key `tabjanitor.session`: memory only, never written to disk, and
+readable only from this extension's own contexts. Manifest V3 stops an idle service worker, so this is
+what lets a review the dashboard is still showing be applied afterwards.
+
+- `SCAN_TABS` stores the session; every `UPDATE_REVIEW_PLAN` stores the plan with the accepted edits.
+- Before `GET_REVIEW_PLAN`, `UPDATE_REVIEW_PLAN` or `APPLY_ORGANIZATION` names a session, the handler
+  reads the stored session back when the worker is holding nothing. A session already in memory wins, so
+  a newer scan is never replaced by an older stored one.
+- A stored entry is restored only when it is a complete, self-consistent session — the same
+  `sessionId` in the snapshot and the plan, finite tab ids, valid categories. Anything else counts as
+  no session: a half-written review is never applied.
+- A successful `APPLY_ORGANIZATION` removes the stored session, because the browser has changed and
+  that review must not come back. A `PARTIAL_APPLY_FAILURE` leaves it in place, exactly as it stays in
+  memory.
+- A restored review is still re-checked against the live window by the organizer: tabs that closed or
+  moved window while the worker was down are reported under `stale`, and nothing is grouped for them.
+- Chrome clears session storage when the browser closes or the extension is reloaded or updated, so
+  those cases still end in `STALE_TABS` / `INVALID_REQUEST` and the dashboard asks for a new scan.
+
 ### Review plan shape
 
 ```json
@@ -161,8 +183,11 @@ characters, sanitized URLs at 500, hostnames at 200.
 
 `Development`, `Study`, `Research`, `Shopping`, `Entertainment`, `Other`, `Junk / Review`.
 `Junk / Review` is a suggestion for human inspection; it never implies automatic closure.
-Internal group colours: Development `cyan`, Study `blue`, Research `purple`, Shopping `orange`,
-Entertainment `yellow`, Other `gray`, Junk / Review `red`.
+Internal group colours, which must be `chrome.tabGroups.Color` values: Development `cyan`,
+Study `blue`, Research `purple`, Shopping `orange`, Entertainment `yellow`, Other `grey`,
+Junk / Review `red`. `chrome.tabs.group` takes `{ tabIds, createProperties: { windowId } }` and
+`chrome.tabGroups.update` takes `{ title, color }` — Chrome rejects any other property by name,
+so these option keys are part of the contract, not a detail.
 
 ## What is sent to the inference endpoint
 

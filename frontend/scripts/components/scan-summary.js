@@ -11,7 +11,8 @@ function modelLine(scan) {
   if (meta.serverModel) parts.push(escapeHtml(String(meta.serverModel)));
   if (meta.tokensPerSecond) parts.push(`${Math.round(meta.tokensPerSecond)} tok/s`);
   if (meta.finishReason) parts.push(`finished: ${escapeHtml(String(meta.finishReason))}`);
-  if (meta.failedRequests) parts.push(`${meta.failedRequests} failed request(s)`);
+  const failed = Array.isArray(meta.failedRequests) ? meta.failedRequests.length : 0;
+  if (failed) parts.push(`${failed} failed request${failed === 1 ? '' : 's'}`);
   return `Model — ${parts.join(' · ')}`;
 }
 

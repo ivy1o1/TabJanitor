@@ -12,6 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createState, handleMessage } from '../../backend/background/message-handler.js';
+import { createSessionStore } from '../../backend/background/session-store.js';
 import { ERROR_CODES, MESSAGE_TYPES } from '../../backend/shared/constants.js';
 import { chatResponse, chatResponseForPrompt, fakeChrome, fakeFetch, jsonResponse, sampleTabs } from '../../backend/tests/helpers.js';
 import { applyOrganization, getStatus, getReviewPlan, scan, updatePlan } from '../scripts/source.js';
@@ -32,7 +33,9 @@ function wire(options = {}) {
     ['/health', options.health ?? jsonResponse({ status: 'ok' })],
     ['/v1/chat/completions', options.reply ?? reply()],
   ]);
-  const state = createState();
+  // `persist` gives the worker the same session storage the extension worker uses.
+  const withStore = () => createState(options.persist ? { store: createSessionStore(chrome.chromeRef) } : {});
+  const worker = { state: withStore() };
   const sent = [];
   globalThis.chrome = {
     runtime: {
@@ -40,11 +43,21 @@ function wire(options = {}) {
       getURL: (path = '') => `chrome-extension://test-extension/${path}`,
       sendMessage: async (message) => {
         sent.push(message);
-        return handleMessage({ message, state, chromeRef: chrome.chromeRef, config: CONFIG, fetchImpl });
+        return handleMessage({ message, state: worker.state, chromeRef: chrome.chromeRef, config: CONFIG, fetchImpl });
       },
     },
   };
-  return { ...chrome, state, sent, fetchImpl };
+  return {
+    ...chrome,
+    sent,
+    fetchImpl,
+    get state() { return worker.state; },
+    /** The browser and its session storage carry on; the worker's memory does not. */
+    restart() {
+      worker.state = createState({ store: createSessionStore(chrome.chromeRef) });
+      return worker.state;
+    },
+  };
 }
 
 const tick = () => new Promise((settle) => setTimeout(settle, 0));
@@ -196,3 +209,35 @@ test('a session that no longer exists is recoverable: re-scan and start over', a
     return true;
   });
 });
+
+test('the page applies its review after the worker restarted, with the edits it made', async () => {
+  const world = wire({ persist: true });
+  const result = await scan();
+  const sync = createReviewSync({ scan: result, sessionId: result.sessionId, updatePlan, debounceMs: 0 });
+  sync.record({ tabId: 1, category: 'Junk / Review' });
+  sync.record({ tabId: 2, closeSelected: true });
+  await tick();
+  assert.equal(sync.read().status, 'clean');
+  assert.equal(sessionStored(world), result.sessionId, 'the review is in session storage');
+
+  const restarted = world.restart();
+  assert.equal(restarted.current, null, 'the new worker remembers nothing');
+
+  // The page notices nothing: the same session still answers, edits included.
+  const reloaded = await getReviewPlan(result.sessionId);
+  assert.equal(reloaded.plan.items.find((item) => item.tabId === 1).category, 'Junk / Review');
+  const applied = await applyOrganization({ sessionId: result.sessionId });
+  assert.equal(applied.partial, false);
+  assert.deepEqual(applied.groups.map((group) => group.category).sort(), ['Junk / Review', 'Shopping']);
+  assert.deepEqual(world.calls.removed, [2], 'only the tab selected for closure closed');
+  assert.equal(sessionStored(world), undefined, 'a spent review is not left behind');
+
+  // A third restart cannot apply the same review a second time.
+  world.restart();
+  await assert.rejects(applyOrganization({ sessionId: result.sessionId }), { code: ERROR_CODES.INVALID_REQUEST });
+  assert.deepEqual(world.calls.grouped, [[1], [3]], 'nothing was grouped twice');
+});
+
+function sessionStored(world) {
+  return world.sessionArea['tabjanitor.session']?.sessionId;
+}

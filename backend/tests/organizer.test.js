@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { CATEGORIES, CATEGORY_COLORS } from '../shared/constants.js';
 import { applyOrganization } from '../background/organizer.js';
 import { buildReviewPlan } from '../background/review-plan.js';
 import { fakeChrome, sampleTabs } from './helpers.js';
@@ -31,6 +32,45 @@ test('approved categories become native tab groups with a documented color', asy
   assert.equal(result.groups.find((group) => group.category === 'Junk / Review').color, 'red');
   assert.equal(calls.grouped.length, 3);
   assert.equal(result.closures.length, 0);
+});
+
+test('every group call uses the option names Chrome actually accepts', async () => {
+  const { snapshot, plan, chromeRef, calls } = await planFixture();
+  await applyOrganization({ plan, chromeRef });
+  assert.equal(calls.groupOptions.length, 3);
+  for (const options of calls.groupOptions) {
+    assert.deepEqual(Object.keys(options).sort(), ['createProperties', 'tabIds']);
+    assert.deepEqual(options.createProperties, { windowId: snapshot.windowId });
+  }
+});
+
+test('every category colour is a value chrome.tabGroups actually accepts', async () => {
+  const tabs = CATEGORIES.map((category, index) => ({
+    id: index + 1,
+    windowId: 10,
+    title: `${category} page`,
+    url: `https://tab-${index}.example.com/`,
+    active: false,
+  }));
+  const { chromeRef, calls } = fakeChrome(tabs);
+  const snapshot = await captureWindowSnapshot({ chromeRef });
+  const plan = buildReviewPlan(snapshot, {
+    accepted: snapshot.eligibleTabs.map((tab, index) => ({
+      ref: tab.ref,
+      category: CATEGORIES[index],
+      explanation: `reason ${tab.ref}`,
+      confidence: 70,
+    })),
+    missingRefs: [],
+    rejected: [],
+  });
+  const result = await applyOrganization({ plan, chromeRef });
+  assert.equal(result.partial, false, JSON.stringify(result.failures));
+  assert.equal(calls.groupUpdates.length, CATEGORIES.length);
+  assert.deepEqual(
+    calls.groupUpdates.map((entry) => entry.update.color).sort(),
+    CATEGORIES.map((category) => CATEGORY_COLORS[category]).sort(),
+  );
 });
 
 test('only explicitly selected tabs are closed', async () => {

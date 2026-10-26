@@ -1,8 +1,11 @@
 import { handleMessage, createState } from './message-handler.js';
+import { createSessionStore } from './session-store.js';
 import { ERROR_CODES } from '../shared/constants.js';
 import { appError, err } from '../shared/schemas.js';
 
-const state = createState();
+// The review session is kept in memory-only session storage as well as in this worker's state,
+// so a plan the dashboard is still showing survives the worker being stopped and restarted.
+const state = createState({ store: createSessionStore(chrome) });
 
 // The dashboard lives outside this module's folder, and getURL is always relative to the
 // extension root, so the action opens it by its root path.

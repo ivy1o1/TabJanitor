@@ -1080,10 +1080,6 @@ tbody tr[data-close-selected='true'] {
   width: 130px;
 }
 
-.col-action {
-  width: 160px;
-}
-
 .col-close {
   width: 70px;
   text-align: center;
@@ -1186,19 +1182,6 @@ tbody tr[data-close-selected='true'] {
   display: block;
   height: 100%;
   background: currentColor;
-}
-
-.suggestion {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-xs);
-  color: var(--ink-secondary);
-}
-
-.suggestion--edited {
-  color: var(--warn);
-  font-weight: 700;
 }
 
 /* Row overflow menu */

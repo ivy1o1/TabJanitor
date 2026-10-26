@@ -103,7 +103,7 @@ function scanData(overrides = {}) {
     unclassified: [{ tabId: 15, ref: 3, title: 'Loose tab', domain: 'x.test', reason: 'the model did not answer for this tab' }],
     truncated: [],
     rejected: [],
-    modelMeta: { modelCalled: true, requests: 2, serverModel: 'gemma-3-1b-it', tokensPerSecond: 19.4, finishReason: 'stop', failedRequests: 0 },
+    modelMeta: { modelCalled: true, requests: 2, serverModel: 'gemma-3-1b-it', tokensPerSecond: 19.4, finishReason: 'stop', failedRequests: [] },
     plan: plan(),
     ...overrides,
   };

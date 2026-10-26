@@ -9,7 +9,19 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Open the TabJanitor dashboard"
+    "default_title": "Open the TabJanitor dashboard",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
   "permissions": ["tabs", "tabGroups", "storage"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"]

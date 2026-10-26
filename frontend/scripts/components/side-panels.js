@@ -88,7 +88,7 @@ export function renderSyncPanel(snapshot) {
   if (sync.status === STATUS.SYNCING) text = `Saving ${pending} change${pending === 1 ? '' : 's'} to the session…`;
   else if (sync.status === STATUS.PENDING) text = `${pending} change${pending === 1 ? '' : 's'} not saved yet.`;
   else if (sync.status === STATUS.FAILED) text = sync.message || 'Some changes were not saved to the session.';
-  else if (sync.status === STATUS.SESSION_LOST) text = sync.message || 'This session no longer exists in the service worker.';
+  else if (sync.status === STATUS.SESSION_LOST) text = sync.message || 'This review is no longer live.';
   else text = sync.message || (edited ? `${edited} change${edited === 1 ? '' : 's'} saved to the session.` : 'In sync with the session — no changes yet.');
 
   const refused = (sync.unsynced || [])

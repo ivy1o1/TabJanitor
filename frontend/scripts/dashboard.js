@@ -108,6 +108,9 @@ const state = createStore({
 /** The live edit synchronizer for the current session; rebuilt on every scan. */
 let sync = null;
 
+/** The two replies that mean "this review is not live any more". */
+const SESSION_LOST_CODES = new Set([ERROR_CODES.STALE_TABS, ERROR_CODES.INVALID_REQUEST]);
+
 let toastTimer = null;
 function showToast(message) {
   els.toast.textContent = message;
@@ -211,7 +214,7 @@ function renderRowsRegion(scan) {
   const empty = planItems(scan).length === 0;
   preservingFocus(els.rows, () => {
     els.rows.innerHTML = empty
-      ? `<tr><td colspan="8"><p class="empty-state">${emptyMessage(snapshot)}</p></td></tr>`
+      ? `<tr><td colspan="7"><p class="empty-state">${emptyMessage(snapshot)}</p></td></tr>`
       : renderRows(snapshot);
   });
   els.rowCount.textContent = empty
@@ -230,7 +233,7 @@ function emptyMessage(snapshot) {
     return 'This review was applied to your browser. Scan the window again to review what is left.';
   }
   if (snapshot.sync.sessionLost) {
-    return 'The service worker no longer has this session, so there is nothing to review. Scan the window again.';
+    return 'This review is no longer live, so there is nothing to apply. Scan the window again.';
   }
   if (snapshot.scanning) return 'Reading the current window…';
   return 'No scan yet. Nothing has been read from your browser. Use Scan Window to build a review plan.';
@@ -285,7 +288,7 @@ async function runScan() {
   } catch (error) {
     commit({ scanning: false });
     renderChrome();
-    showToast(`Scan failed (${error.code || 'ERROR'}): ${error.message}`);
+    showToast(`Scan failed: ${error.message}`);
     // The previous review stays exactly as it was; nothing is invented to replace it.
     return;
   }
@@ -311,7 +314,7 @@ async function runScan() {
     categoryFilter: null,
     openMenuTabId: null,
     sync: sync.read(),
-    lastScanLabel: `Scanned ${result.scannedCount} tabs at ${new Date().toLocaleTimeString()} · session kept in the service worker`,
+    lastScanLabel: `Scanned ${result.scannedCount} tabs at ${new Date().toLocaleTimeString()}`,
   });
   els.search.value = '';
   renderChrome();
@@ -343,6 +346,23 @@ function recordEdits(patches) {
   return true;
 }
 
+/**
+ * The review never reached the browser: keep the dialog open and unconfirmed, with the reason the
+ * worker or this page actually reported. `expired` is the case only a fresh scan can fix.
+ */
+function showBlockedDialog({ expired = false, message }) {
+  if (expired) sync?.loseSession(message);
+  commit({ applying: false, sync: sync ? sync.read() : state.get().sync });
+  const { scan, sync: syncState } = state.get();
+  els.dialog.innerHTML = renderApplyDialog(
+    scan,
+    expired ? { ...syncState, sessionLost: true } : { ...syncState, blocked: true, message },
+  );
+  els.dialog.querySelector('[data-focus-key="dialog-cancel"]')?.focus();
+  showToast(`Not applied: ${message}`);
+  renderData();
+}
+
 async function openApplyDialog() {
   const snapshot = state.get();
   if (snapshot.applied) {
@@ -366,7 +386,7 @@ async function confirmApply() {
   const snapshot = state.get();
   if (snapshot.applying || snapshot.applied) return;
   if (!snapshot.sessionId) {
-    showToast('There is no session to apply.');
+    showToast('There is no review to apply.');
     return;
   }
   commit({ applying: true });
@@ -379,8 +399,17 @@ async function confirmApply() {
     commit({ applying: false, sync: flushed.state });
     els.dialog.innerHTML = renderApplyDialog(state.get().scan, { ...flushed.state, blocked: true });
     els.dialog.querySelector('[data-focus-key="dialog-cancel"]')?.focus();
-    showToast(`Not applied: ${flushed.state.message || 'your changes have not been saved to the session.'}`);
+    showToast(`Not applied: ${flushed.state.message || 'your changes have not been saved to the review.'}`);
     renderData();
+    return;
+  }
+
+  // The review can have outlived the background that built it, so ask it to confirm the review
+  // is still there before anything is approved — a late failure is a confusing one.
+  try {
+    await getReviewPlan(snapshot.sessionId);
+  } catch (error) {
+    showBlockedDialog({ expired: SESSION_LOST_CODES.has(error.code), message: error.message });
     return;
   }
 
@@ -388,21 +417,26 @@ async function confirmApply() {
   try {
     result = await applyOrganization({ sessionId: snapshot.sessionId });
   } catch (error) {
-    commit({ applying: false });
     if (error.code === ERROR_CODES.PARTIAL_APPLY_FAILURE) {
       // A partial truth: show exactly what the browser did and what it did not.
-      sync?.loseSession('Part of this review was applied. Scan the window again to continue.');
+      const done = (error.details?.groups?.length || 0) + (error.details?.closures?.length || 0);
+      sync?.loseSession(
+        done
+          ? 'Part of this review was applied. Scan the window again to continue.'
+          : 'Nothing was applied, so your tabs are unchanged. Scan the window again to continue.',
+      );
       els.dialog.innerHTML = renderApplyResult(error.details, { partial: true, message: error.message });
       els.dialog.querySelector('[data-focus-key="dialog-close"]')?.focus();
       commit({ applied: true, sync: sync ? sync.read() : state.get().sync });
       renderData();
       return;
     }
-    if (error.code === ERROR_CODES.STALE_TABS || error.code === ERROR_CODES.INVALID_REQUEST) {
-      sync?.loseSession(error.message);
-      commit({ sync: sync ? sync.read() : state.get().sync });
+    if (SESSION_LOST_CODES.has(error.code)) {
+      showBlockedDialog({ expired: true, message: error.message });
+      return;
     }
-    showToast(`Apply failed (${error.code || 'ERROR'}): ${error.message}`);
+    commit({ applying: false });
+    showToast(`Apply failed: ${error.message}`);
     els.dialog.close();
     renderData();
     return;
@@ -438,7 +472,7 @@ on(els.sidebar, 'click', '[data-action="nav-home"]', () => {
 on(els.statusbar, 'click', '[data-action="refresh-status"]', () => refreshStatus({ announce: true }));
 
 on(els.statusbar, 'click', '[data-action="open-settings"]', () => {
-  showToast('Settings are not part of this build. Endpoint and model live in chrome.storage.local.');
+  showToast('Settings are not part of this build.');
 });
 
 on(els.banner, 'click', '[data-action="scan"]', () => runScan());

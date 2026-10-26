@@ -6,13 +6,12 @@ import { escapeHtml, monogram } from '../dom.js';
  * TabRow — one review-plan item.
  *
  * Column order mirrors the contract's item fields: title/domain are the sanitized
- * snapshot values, `category` is editable, `originalCategory` is what the model said,
- * and `closeSelected` is the only field that becomes a real closure — on apply, in the
- * background organizer, never from here.
+ * snapshot values, `category` is editable and reset to the model's answer from the
+ * overflow menu, and `closeSelected` is the only field that becomes a real closure — on
+ * apply, in the background organizer, never from here.
  */
 function renderRow(item, openMenuTabId) {
   const band = confidenceBand(item.confidence);
-  const edited = item.category !== item.originalCategory || item.userEdited;
   const menuOpen = openMenuTabId === item.tabId;
   const options = CATEGORY_ORDER.map(
     (category) => `<option value="${escapeHtml(category)}"${category === item.category ? ' selected' : ''}>${escapeHtml(category)}</option>`,
@@ -49,12 +48,6 @@ function renderRow(item, openMenuTabId) {
           <span class="confidence__meter" aria-hidden="true"><i style="width:${item.confidence}%"></i></span>
         </span>
       </td>
-      <td data-label="Action" class="col-action">
-        <span class="suggestion${edited ? ' suggestion--edited' : ''}">
-          ${icon(edited ? 'star' : 'sparkle', { size: 15 })}
-          <span>${edited ? `Edited from ${escapeHtml(item.originalCategory)}` : 'AI Suggestion'}</span>
-        </span>
-      </td>
       <td data-label="Close" class="col-close">
         <button type="button" class="btn btn--ghost btn--sm" data-action="toggle-close" data-tab-id="${item.tabId}"
           data-focus-key="closebtn-${item.tabId}" aria-pressed="${item.closeSelected}"
@@ -86,7 +79,7 @@ export function renderRows(state) {
   if (!rows.length) {
     const filterWord = state.categoryFilter ? ` in ${escapeHtml(state.categoryFilter)}` : '';
     const needle = state.search ? `“${escapeHtml(state.search)}”` : 'any filter';
-    return `<tr><td colspan="8"><p class="empty-state">No classified tab matches ${needle}${filterWord}.</p></td></tr>`;
+    return `<tr><td colspan="7"><p class="empty-state">No classified tab matches ${needle}${filterWord}.</p></td></tr>`;
   }
   return rows.map((item) => renderRow(item, state.openMenuTabId)).join('');
 }
