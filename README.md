@@ -1,252 +1,262 @@
-# TabJanitor
+# TabJanitor 🧹
+### Less Tabs. More Focus.
 
-AI-powered browser tab organization for Chrome (Manifest V3). TabJanitor reads the tabs in the
-current window, classifies them with a **local Gemma model**, lets a human review and correct the
-result, and only then creates native tab groups and closes explicitly selected tabs.
+**TabJanitor** is a local-first AI-powered browser tab organizer that turns tab chaos into a structured workspace. It uses **Gemma 3 1B running locally through `llama.cpp`** to classify open tabs, then lets you review and edit the proposed organization before making any browser changes.
 
-**Status: backend done, frontend in demo mode.** The service worker and its message contract are
-implemented and tested. The dashboard UI exists and is fully interactive, but it renders **sample
-data** — it is not wired to the backend yet, and it never reads or changes real tabs. Connecting the
-two is the next phase; see [Frontend](#frontend-demo-mode) and
-[`frontend/scripts/source.js`](frontend/scripts/source.js).
+No accounts. No cloud AI API. No automatic tab closures.
 
-## Workflow
+> **Core principle:** AI recommends. You review. You decide what changes.
 
-1. **Start scan** — the frontend asks for `SCAN_TABS`. Only the current window is read.
-2. **Minimal metadata** — per tab: a local reference number, a truncated title, the sanitized URL
-   (query, fragment and credentials removed) and the hostname. `chrome://` and similar pages are
-   excluded from classification. No page content, cookies, storage or history is read.
-3. **Classify with Gemma** — one chat-completions request per eligible tab against the configured
-   local endpoint; the reply must be JSON.
-4. **Validate and build the review plan** — categories, confidence range, ref correspondence,
-   duplicates and unknown refs are checked against the trusted local snapshot; counts are computed
-   locally. Nothing changes in the browser during this stage.
-5. **User review** — the plan is editable: move tabs between categories, tick individual tabs for
-   closure. The AI's original answer stays in `originalCategory`.
-6. **Apply** — only after `APPLY_ORGANIZATION` with an explicit `approve: true`. Tabs are re-checked
-   against the live window, groups are created with `chrome.tabs.group` / `chrome.tabGroups.update`,
-   and only individually selected tabs are closed.
+## ✨ Features
 
-`Junk / Review` is a hint for a human to look at, never an automatic close.
+- **AI-powered tab classification** — organize tabs into Development, Study, Research, Shopping, Entertainment, Other, and Junk / Review.
+- **Local Gemma inference** — run classification on your own machine using `llama-server`.
+- **Human-in-the-loop workflow** — inspect classifications, change categories, and choose individual tabs to close.
+- **Native browser tab groups** — apply approved categories as browser groups.
+- **Privacy-first metadata handling** — send only limited, sanitized tab metadata to the local model.
+- **Light and dark themes** — switch between themes in the dashboard.
+- **Explicit approval** — no grouping or closing tabs during scanning or review.
 
-## Architecture
+## 🧠 How Gemma Is Integrated
 
-```
-manifest.json              MV3, service worker as an ES module
-background/
-  service-worker.js        message entry point, trusted-sender check, in-memory session state
-  message-handler.js       SCAN_TABS / GET_REVIEW_PLAN / UPDATE_REVIEW_PLAN / APPLY_ORGANIZATION / GET_STATUS
-  tab-scanner.js           current-window snapshot, local refs, session id
-  metadata.js              scheme filtering, URL sanitization, length limits
-  ai-client.js             configuration, validation, readiness, OpenAI-compatible chat completions
-  classifier.js            prompt, JSON extraction, model-output validation
-  review-plan.js           plan construction, user edits, local counts
-  organizer.js             live re-validation, grouping, naming, explicit closures
-shared/
-  constants.js             categories, colours, limits, message types, error codes, status values
-  schemas.js               envelope helpers and field validators
-frontend/
-  dashboard.html           the dashboard page (extension page path for phase 2)
-  styles/tokens.css        design tokens: light + dark themes, nothing else holds a colour
-  styles/dashboard.css     layout and components, mobile-first
-  scripts/dashboard.js     controller: state -> render, event wiring
-  scripts/source.js        THE INTEGRATION BOUNDARY: the only module that supplies data
-  scripts/mock-data.js     sample plan shaped exactly like the SCAN_TABS payload
-  scripts/selectors.js     derived counts, filtering, distribution
-  scripts/theme.js         theme state, chrome.storage.local with a localStorage mirror
-  scripts/components/      sidebar, status header, banner, summary, cards, table, panels, dialog
-  scripts/{store,dom,icons}.js  tiny state container, DOM helpers, inline SVG icons + brand mark
-  assets/tabjanitor-logo-source.jpg  brand artwork; the SVG in icons.js is traced from it
-tools/serve-frontend.js    dev-only static server so the page can run over http://
-tools/logo-trace.html      re-traces the logo artwork into the icons.js path (open it in a browser)
-tests/                     mocked unit tests + a manual live smoke test
-docs/API_CONTRACT.md       request/response contract for the frontend
-config/config.example.json example inference configuration
+TabJanitor uses **Gemma 3 1B Instruct in GGUF format**, served locally by `llama.cpp` through its `llama-server` executable.
+
+Gemma acts as the classification component of the application. It receives limited metadata about an eligible tab and returns a structured classification that the extension validates before using it to build a review plan.
+
+### Inference pipeline
+
+1. **Prepare metadata:** the extension collects the tab title and URL-related metadata, removes query parameters and fragments from the URL, and applies length limits.
+2. **Send a local inference request:** the extension's background service worker sends a request to the local OpenAI-compatible chat-completions endpoint.
+3. **Classify:** Gemma proposes a category and a concise explanation, along with the structured fields required by the classifier.
+4. **Validate:** application code checks the response structure, allowed categories, confidence values, and tab references. Invalid or incomplete model output must not be blindly trusted.
+5. **Build the plan:** the extension creates the review plan and calculates its counts locally.
+6. **Wait for approval:** the user reviews and adjusts the plan before applying any changes.
+
+### Why use a local model?
+
+Running Gemma locally avoids depending on a hosted AI API for classification. TabJanitor does not require an OpenAI API key or a cloud inference account for its local model workflow.
+
+The model is not responsible for executing browser actions. **Gemma proposes classifications; the extension's trusted code controls tab grouping and closure.**
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart TD
+    A[User opens TabJanitor dashboard] --> B[Scan current browser window]
+    B --> C[Tab Scanner]
+    C --> D[Metadata Sanitization]
+    D --> E[Background AI Client]
+    E --> F[Local llama-server]
+    F --> G[Gemma 3 1B Instruct]
+    G --> H[Structured Classification]
+    H --> I[Validate Model Output]
+    I --> J[Build Review Plan]
+    J --> K[User Reviews and Edits]
+    K --> L{Explicit Approval?}
+    L -- No --> K
+    L -- Yes --> M[Revalidate Live Tabs]
+    M --> N[Create Native Tab Groups]
+    M --> O[Close Individually Selected Tabs]
 ```
 
-The frontend talks only to `message-handler.js` through the documented envelope
-(`{ ok: true, data }` / `{ ok: false, error: { code, message, details } }`).
+### Main components
 
-## Model endpoint (verified on this machine, 2026-10-26)
+| Component | Responsibility |
+|---|---|
+| `manifest.json` | Declares the Manifest V3 extension, service worker, permissions, and local endpoint access. |
+| `background/service-worker.js` | Entry point for extension messages and trusted-sender checks. |
+| `background/message-handler.js` | Handles status, scanning, review-plan updates, and approved application requests. |
+| `background/tab-scanner.js` | Reads the current window's tabs and creates the scan snapshot. |
+| `background/metadata.js` | Filters unsupported URL schemes, sanitizes metadata, and enforces limits. |
+| `background/ai-client.js` | Validates local model configuration, checks readiness, and sends inference requests. |
+| `background/classifier.js` | Constructs the classification request and validates model output. |
+| `background/review-plan.js` | Builds and updates the editable review plan and calculates counts. |
+| `background/organizer.js` | Revalidates live tabs and performs approved grouping and closures. |
+| `shared/constants.js` | Defines categories, limits, message types, and error/status codes. |
+| `shared/schemas.js` | Provides request/response helpers and field validation. |
+| `frontend/` | Contains the dashboard, theme system, UI components, state handling, and frontend integration boundary. |
 
-Verified facts, not assumptions:
+### Frontend–backend communication
 
-| Item | Value |
-| --- | --- |
-| Server binary | `llama-server.exe` from winget package `ggml.llamacpp` |
-| Version | `0.5.0-dev (build 11382, commit 11fe02151)` |
-| Model file (already on disk, not downloaded) | `~/.cache/huggingface/hub/models--ggml-org--gemma-3-1b-it-GGUF/snapshots/f9c28bcd85737ffc5aef028638d3341d49869c27/gemma-3-1b-it-Q4_K_M.gguf` (768.7 MB, Q4_K - Medium) |
-| Endpoint used for verification | `http://127.0.0.1:8080` |
-| Readiness | `GET /health` → `200 {"status":"ok"}` |
-| Server-reported model | `/props` → `model_alias` = the full `.gguf` path above |
-| Real inference | `POST /v1/chat/completions` returned parseable JSON classifications; ~19 tokens/s, ~2 s per tab |
+The dashboard communicates with the extension service worker through `chrome.runtime.sendMessage()`. The background layer owns access to browser tabs and the local inference endpoint.
 
-Not verified / previously not present: no server process was running, nothing listened on any
-common LLM port, no startup entry or scheduled task started one, and no model-related environment
-variable existed. The server was started manually for verification:
+The request/response contract uses a consistent envelope:
+
+- Success: `{ "ok": true, "data": {} }`
+- Failure: `{ "ok": false, "error": { "code": "...", "message": "...", "details": {} } }`
+
+This separation keeps UI components from directly executing browser actions or sending tab metadata to the model endpoint.
+
+## 🔄 The User Workflow
+
+### 1. Check model status
+
+Open TabJanitor from the browser's extension toolbar. The dashboard checks whether the extension can communicate with the local inference service.
+
+Scanning should remain unavailable if the required model checks fail.
+
+### 2. Scan the current window
+
+Start a scan to collect eligible tabs from the current browser window. TabJanitor does not scan every browser window automatically.
+
+### 3. Review the AI-generated plan
+
+Inspect the proposed categories, tab titles, domains, explanations, and summary counts. Unsupported browser pages are excluded from model classification.
+
+### 4. Correct the plan
+
+Move tabs into different categories as needed. Select individual tabs for closure only when you are sure they are no longer needed.
+
+`Junk / Review` is a suggestion to inspect a tab, not an instruction to close it.
+
+### 5. Apply the organization
+
+Confirm the action through the dashboard's approval flow. The extension rechecks the relevant tabs and then attempts to create native tab groups and close only the tabs explicitly selected for closure.
+
+If some operations fail, the application should report the partial result rather than claiming everything succeeded.
+
+## 🔒 Privacy and Safety
+
+TabJanitor is designed to keep classification local and browser actions under user control.
+
+- **Local inference:** the configured model endpoint must use `127.0.0.1` or `localhost`.
+- **Minimal metadata:** the model receives sanitized tab metadata, not full webpages.
+- **No page-content scraping:** TabJanitor does not need page contents, cookies, browser storage, or browsing history for its classification workflow.
+- **No remote inference endpoint:** the application validates the endpoint configuration and rejects non-loopback endpoints.
+- **No automatic closures:** the model cannot close tabs. Closure requires explicit user selection and approval.
+- **Live revalidation:** the extension rechecks tab IDs and window membership before applying changes.
+- **Validated model output:** model-generated data is treated as untrusted input and checked by application code.
+
+The extension requests these browser permissions:
+
+| Permission | Purpose |
+|---|---|
+| `tabs` | Read tab titles and URLs and perform approved tab operations. |
+| `tabGroups` | Create and name native tab groups. |
+| `storage` | Store the local inference configuration and supported extension settings. |
+| Localhost host permissions | Communicate with the local inference server. |
+
+**Privacy scope:** tab metadata is sent to the configured local inference server. This design does not independently audit the operating system, model binary, or other software running on the machine.
+
+## ⚙️ Setup and Usage
+
+### Requirements
+
+- Google Chrome with support for Manifest V3.
+- The TabJanitor repository.
+- `llama-server` from `llama.cpp`.
+- A compatible local Gemma GGUF model.
+- A machine capable of running the selected model.
+
+### 1. Start the local Gemma server
+
+Make sure your GGUF model is available locally and `llama-server` is installed.
+
+Example PowerShell command for the verified local setup:
 
 ```powershell
 & "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\ggml.llamacpp_Microsoft.Winget.Source_8wekyb3d8bbwe\llama-server.exe" `
   --model "$env:USERPROFILE\.cache\huggingface\hub\models--ggml-org--gemma-3-1b-it-GGUF\snapshots\f9c28bcd85737ffc5aef028638d3341d49869c27\gemma-3-1b-it-Q4_K_M.gguf" `
-  --host 127.0.0.1 --port 8080 --ctx-size 4096
+  --host 127.0.0.1 `
+  --port 8080 `
+  --ctx-size 4096
 ```
 
-The endpoint interface is llama.cpp's OpenAI-compatible chat completions (`/v1/chat/completions`),
-which is exactly what `background/ai-client.js` calls. Ollama is not used and not required.
+This command uses the model path from the original development environment. If you use a different installation or model location, update the paths accordingly.
 
-### Configuration
+The server exposes an OpenAI-compatible chat-completions endpoint at:
 
-The endpoint and model identifier are **not** hardcoded into the logic. The service worker reads
-them from `chrome.storage.local` under the key `tabjanitor.config`:
+`http://127.0.0.1:8080/v1/chat/completions`
 
-```js
-chrome.storage.local.set({ tabjanitor.config: {
-  inferenceEndpoint: 'http://127.0.0.1:8080',
-  inferenceModel: 'gemma-3-1b-it',
-  requestTimeoutMs: 60000
-} });
-```
+TabJanitor uses this local endpoint; Ollama is not required for this setup.
 
-- `inferenceEndpoint` must be an `http` base URL on `127.0.0.1` or `localhost`, with no path, query or
-  credentials. It is validated before any request, and a non-loopback value is refused with
-  `CONFIG_MISSING` — the extension cannot be pointed at a cloud endpoint by configuration alone.
-- `inferenceModel` is the identifier sent in the request. llama.cpp reports the loaded model at
-  `/props` (`model_alias` / `model_path`). `gemma-3-1b-it` was verified to be accepted by this
-  server; check `/props` after loading a different model.
-- If nothing is stored, the code falls back to the verified local defaults (`http://127.0.0.1:8080`,
-  `gemma-3-1b-it`). That default is a convenience for this local setup, still overridable at runtime.
-- `config/config.example.json` mirrors the same shape for the Node smoke test. Machine-specific
-  values belong in `config/config.local.json`, which is gitignored.
+### 2. Verify the server
 
-### Readiness check
+In PowerShell, run:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8080/health   # expect: status ok
-Invoke-RestMethod http://127.0.0.1:8080/props | Select-Object model_alias, model_ftype
+Invoke-RestMethod http://127.0.0.1:8080/health
 ```
 
-`GET_STATUS` performs both kinds of check at runtime and reports one of:
-`config_missing`, `endpoint_unreachable`, `model_request_failing`, `ready`.
-Readiness never sends tab metadata; the `ready` state is confirmed with one synthetic fixture tab.
+The server should report a healthy status. You can also inspect the loaded model:
 
-## Permissions
-
-- `tabs` — read the current window's tab titles and URLs, and create/close tabs.
-- `tabGroups` — create and name native groups.
-- `storage` — read the inference endpoint/model from `chrome.storage.local`.
-- `host_permissions: http://127.0.0.1/*, http://localhost/*` — loopback only, so the service worker
-  may reach a local inference server on any port. No broad host permissions are requested.
-
-llama.cpp answers CORS with `--cors-origins` defaulting to `*`, which works from the extension
-origin. If you restrict it, include `chrome-extension://<your unpacked extension id>`.
-
-Privacy note: the validation above and the loopback-only `host_permissions` together mean tab
-metadata cannot be sent anywhere but this machine — a remote `inferenceEndpoint` is rejected by the
-client before a request is made, and the manifest does not grant the extension any other host. No key is
-needed for the local path, and no credential is ever committed.
-
-## Frontend (demo mode)
-
-The dashboard recreates the reference design: cream graph-paper surfaces, neo-brutalist borders and
-hard offset shadows, a Bodoni-class display serif over Inter, pastel folder cards, and a real light
-and dark theme.
-
-```bash
-npm run serve:frontend   # http://127.0.0.1:4173/frontend/dashboard.html
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/props |
+  Select-Object model_alias, model_path, model_ftype
 ```
 
-It is a plain HTML + CSS + ES-module page with no build step and no dependencies, matching the rest
-of the repository.
+A healthy endpoint alone does not guarantee that classification requests will succeed; TabJanitor also checks whether the model can answer a test request.
 
-**What works locally, on sample data:** search, category filtering (cards and the view selector stay
-in sync), per-row category edits with the AI's original answer preserved, individual closure
-selection with live counts, select-all over the visible rows, Clear All, the row overflow menu, the
-theme toggle with persistence, and the Apply confirmation dialog.
+### 3. Load the extension in Chrome
 
-**What deliberately does not happen:** no `fetch`, no `chrome.runtime.sendMessage`, no `chrome.tabs`
-call. The status badge reads **Demo Mode / Not connected** rather than "Ready", the summary numbers
-are labelled sample figures, and confirming the apply dialog only shows a toast that nothing changed.
+1. Open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Select **Load unpacked**.
+4. Choose the TabJanitor project folder containing `manifest.json`.
+5. Pin TabJanitor to the browser toolbar if needed.
+6. Click the TabJanitor icon to open its dashboard.
 
-Everything the UI shows is derived from one object. `frontend/scripts/mock-data.js` builds a sample
-plan that matches the `SCAN_TABS` payload from `docs/API_CONTRACT.md` field for field, and
-`frontend/scripts/source.js` is the only module that hands it to the page. Phase 2 replaces the four
-function bodies in `source.js` with the four message calls; no component changes.
+### 4. Use TabJanitor
 
-## Tests
+1. Check that model status is ready.
+2. Select **Scan Window**.
+3. Review the generated classifications.
+4. Correct categories and select any tabs you explicitly want to close.
+5. Review the changes and confirm **Apply Organization**.
 
-```bash
-node --version    # v24.x
-npm test          # 69 mocked unit tests, no network, no model required
+If the model is unavailable, check that `llama-server` is running at the configured endpoint and that the selected model loaded successfully.
+
+## 🧰 Configuration
+
+The extension reads its local model configuration from `chrome.storage.local` under the key `tabjanitor.config`.
+
+Example configuration values:
+
+```js
+{
+  inferenceEndpoint: "http://127.0.0.1:8080",
+  inferenceModel: "gemma-3-1b-it",
+  requestTimeoutMs: 60000
+}
 ```
 
-`npm test` runs `node --test "tests/*.test.js"` (Node's built-in runner; no dependencies added).
-Coverage includes URL sanitization, unsupported-page handling, prompt content, JSON extraction,
-invalid/duplicate/unknown/missing refs, invalid categories and confidence, per-tab request count,
-per-tab failure isolation when the model answers one tab with unusable JSON, endpoint validation
-(loopback-only), bounded `maxTabsPerRequest` / `timeoutMs` arguments, timeout and unavailable-endpoint
-handling, local counts, user edits, closure selection, stale sessions, vanished tabs, partial browser
-failures, and "no browser mutation before approval".
+These are the configuration fields, not a standalone executable configuration file. The endpoint must be a loopback HTTP base URL, without a path, query string, or credentials. The model identifier must match what the local server accepts.
 
-`tests/helpers.js` injects a fake `chrome` object and a fake `fetch`; nothing real is touched.
+## 🧪 Testing
 
-## Manual smoke tests
+TabJanitor's automated tests are designed to test the application logic without requiring real browser tab operations or live model inference for every test.
 
-1. Live model inference (uses the verified local endpoint, synthetic fixture metadata only):
+Important areas to test include:
 
-   ```bash
-   npm run smoke:live
-   # or: node tests/smoke-live.js --endpoint http://127.0.0.1:8080 --model gemma-3-1b-it
-   ```
+- Metadata sanitization and unsupported-page filtering.
+- Valid and malformed model responses.
+- Unknown, missing, or duplicate tab references.
+- Invalid configuration and unreachable model endpoints.
+- Review-plan edits and individual closure selections.
+- Stale tabs and partial failures during application.
+- Explicit approval before browser mutations.
 
-   It prints the health result, the server-reported model path, timing, and either
-   `RESULT: PASS - real local Gemma inference returned N/N parseable classifications.` or
-   `RESULT: FAIL - <code>: <message>` with a non-zero exit code. A failure is reported as a failure;
-   nothing is simulated.
+A final manual smoke test should use a real Chrome extension installation and a running local Gemma server.
 
-2. In-browser backend smoke (no UI yet — drive the service worker from
-   `chrome://extensions` → TabJanitor → "Inspect views: service worker"):
+Run the project's available test scripts from the repository root, using the commands defined in `package.json`. Test results should only be described as passing after they have actually been run.
 
-   ```js
-   chrome.runtime.sendMessage({ type: 'GET_STATUS', payload: {} }, console.log);
-   const r = await chrome.runtime.sendMessage({ type: 'SCAN_TABS', payload: {} });
-   console.log(r.data.sessionId, r.data.plan.items);
-   await chrome.runtime.sendMessage({ type: 'UPDATE_REVIEW_PLAN', payload: {
-     sessionId: r.data.sessionId, closures: [{ tabId: 42, closeSelected: true }] } });
-   await chrome.runtime.sendMessage({ type: 'APPLY_ORGANIZATION', payload: {
-     sessionId: r.data.sessionId, approve: true } });
-   ```
+## 🚧 Current Scope and Limitations
 
-## Load the unpacked extension
+- The primary target is Chrome with Manifest V3.
+- Classification quality depends on the local model and the metadata available for each tab.
+- Model responses can be malformed or ambiguous, so application-side validation remains necessary.
+- Unsupported browser pages cannot be classified like ordinary web pages.
+- Local model performance depends on the device, model quantization, and number of eligible tabs.
+- Opera compatibility has not been established solely by Chrome testing; it requires separate testing in Opera.
 
-1. Start `llama-server` (command above) and confirm `/health`.
-2. Chrome → `chrome://extensions` → Developer mode → **Load unpacked** → select this repository folder.
-3. Open a window with several http/https tabs, then use the console snippets above.
-   Until the frontend exists there is no popup, so this is the only way to exercise the workflow.
+## 🛣️ Project Direction
 
-## Known limitations
+TabJanitor prioritizes reliable, transparent tab organization over autonomous browser control.
 
-- The frontend is not connected to anything. It renders sample data, so the workflow still cannot be
-  completed end to end by a person.
-- The dashboard has no manifest entry point yet (`action` / `chrome.tabs.create`), which is a manifest
-  change and therefore belongs to the integration phase. Until then it is opened over `http://` or as
-  `chrome-extension://<id>/frontend/dashboard.html`.
-- `dashboard.html` loads its two webfonts from Google Fonts, which is the one remote request the page
-  makes. Self-host the woff2 files before shipping so the interface keeps the project's
-  no-network-by-default property.
-- On phones the table header is hidden, so select-all is desktop-only; per-row closure selection and
-  Clear All remain available.
-- Scan state lives in the service worker's memory only (no persistence was approved), so a worker
-  eviction clears the current session; the frontend must re-scan. `STALE_TABS` guards against
-  applying an old plan.
-- Classification is one request per tab: the verified 1B model drops refs and returns prose when
-  given a batch, so batching was measured and rejected. Expect roughly 2 s per tab.
-- The 1B model mislabels generic pages (for example `react.dev` came back as `Study`), which is why
-  human review is mandatory and confidence is informational.
-- A scan is capped at 40 tabs per request cycle (configurable up to 100 via `maxTabsPerRequest`);
-  the rest are reported as `truncated` and left unclassified rather than guessed.
-- A model server on another machine (for example `http://192.168.1.20:8080`) is refused by design:
-  the local-only rule keeps the endpoint check and the loopback `host_permissions` in agreement, so
-  tab metadata has no configuration path off this device. Serving the model from a different host
-  would require an explicit change to both, and that has not been approved.
-- Edge compatibility is not assessed yet; browser API usage is confined to
-  `tab-scanner.js` and `organizer.js` behind an injected `chromeRef`.
+The central design decision is to separate **AI classification** from **browser execution**: the model provides suggestions, application code validates them, and the user retains final control.
+
+---
+
+**Built for a calmer browsing workflow.**
+
+*TabJanitor — Clutter Free, Mind Clear.*
