@@ -1,0 +1,65 @@
+export const CATEGORIES = [
+  'Development',
+  'Study',
+  'Research',
+  'Shopping',
+  'Entertainment',
+  'Other',
+  'Junk / Review',
+];
+
+export const CATEGORY_COLORS = {
+  Development: 'cyan',
+  Study: 'blue',
+  Research: 'purple',
+  Shopping: 'orange',
+  Entertainment: 'yellow',
+  Other: 'gray',
+  'Junk / Review': 'red',
+};
+
+export const PROTOCOL_VERSION = 1;
+
+export const MESSAGE_TYPES = {
+  SCAN_TABS: 'SCAN_TABS',
+  GET_REVIEW_PLAN: 'GET_REVIEW_PLAN',
+  UPDATE_REVIEW_PLAN: 'UPDATE_REVIEW_PLAN',
+  APPLY_ORGANIZATION: 'APPLY_ORGANIZATION',
+  GET_STATUS: 'GET_STATUS',
+};
+
+export const ERROR_CODES = {
+  INVALID_REQUEST: 'INVALID_REQUEST',
+  UNTRUSTED_SENDER: 'UNTRUSTED_SENDER',
+  UNSUPPORTED_TABS: 'UNSUPPORTED_TABS',
+  CONFIG_MISSING: 'CONFIG_MISSING',
+  MODEL_UNAVAILABLE: 'MODEL_UNAVAILABLE',
+  INFERENCE_TIMEOUT: 'INFERENCE_TIMEOUT',
+  INVALID_MODEL_OUTPUT: 'INVALID_MODEL_OUTPUT',
+  STALE_TABS: 'STALE_TABS',
+  BROWSER_API_ERROR: 'BROWSER_API_ERROR',
+  PARTIAL_APPLY_FAILURE: 'PARTIAL_APPLY_FAILURE',
+};
+
+export const LIMITS = {
+  TITLE_MAX: 300,
+  URL_MAX: 500,
+  DOMAIN_MAX: 200,
+  EXPLANATION_MAX: 280,
+  REF_MAX: 64,
+  CONFIDENCE_MIN: 0,
+  CONFIDENCE_MAX: 100,
+  DEFAULT_MAX_TABS_PER_REQUEST: 40,
+  DEFAULT_REQUEST_TIMEOUT_MS: 60000,
+  STATUS_PROBE_TIMEOUT_MS: 5000,
+  HEALTH_TIMEOUT_MS: 5000,
+};
+
+export const DEFAULT_INFERENCE_ENDPOINT = 'http://127.0.0.1:8080';
+
+export const STATUS_VALUES = {
+  CONFIG_MISSING: 'config_missing',
+  ENDPOINT_UNREACHABLE: 'endpoint_unreachable',
+  MODEL_REQUEST_FAILING: 'model_request_failing',
+  READY: 'ready',
+};
