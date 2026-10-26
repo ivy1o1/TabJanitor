@@ -31,9 +31,11 @@ says so and keeps the scan and apply buttons disabled. See
    locally. Nothing changes in the browser during this stage.
 5. **User review** — the plan is editable: move tabs between categories, tick individual tabs for
    closure. Every edit is debounced and sent to the session as `UPDATE_REVIEW_PLAN`, so the worker
-   holds the plan that will actually be applied. The AI's original answer stays in `originalCategory`.
+   holds the plan that will actually be applied — in memory that survives the worker being stopped and
+   restarted. The AI's original answer stays in `originalCategory`.
 6. **Apply** — only after `APPLY_ORGANIZATION` with an explicit `approve: true`. The dashboard first
-   flushes any unsent edit and refuses to apply while one is still pending or was refused. Tabs are
+   flushes any unsent edit and refuses to apply while one is still pending or was refused, then checks
+   that the review is still live before anything is approved. Tabs are
    re-checked against the live window, groups are created with `chrome.tabs.group` /
    `chrome.tabGroups.update`, and only individually selected tabs are closed.
 
@@ -104,6 +106,7 @@ backend/
     classifier.js             prompt, JSON extraction, model-output validation
     review-plan.js            plan construction, user edits, local counts
     organizer.js              live re-validation, grouping, naming, explicit closures
+    session-store.js          the review in memory-only session storage, so a restarted worker can still apply it
   shared/
     constants.js              categories, colours, limits, message types, error codes, status values
     schemas.js                envelope helpers and field validators
@@ -150,6 +153,7 @@ statically so they cannot drift back.
 | `background/classifier.js` | Constructs the classification request and validates model output. |
 | `background/review-plan.js` | Builds and updates the editable review plan and calculates counts. |
 | `background/organizer.js` | Revalidates live tabs and performs approved grouping and closures. |
+| `background/session-store.js` | Keeps the current review in memory-only session storage across a service-worker restart. |
 | `shared/constants.js` | Defines categories, limits, message types, and error/status codes. |
 | `shared/schemas.js` | Provides request/response helpers and field validation. |
 | `frontend/` | Contains the dashboard, theme system, UI components, state handling, and frontend integration boundary. |
@@ -211,7 +215,7 @@ The extension requests these browser permissions:
 |---|---|
 | `tabs` | Read tab titles and URLs and perform approved tab operations. |
 | `tabGroups` | Create and name native tab groups. |
-| `storage` | Store the local inference configuration and supported extension settings. |
+| `storage` | Store the local inference configuration and the dashboard theme, and keep the review you are looking at in memory-only session storage while Chrome is running. |
 | Localhost host permissions | Communicate with the local inference server. |
 
 **Privacy scope:** tab metadata is sent to the configured local inference server. This design does not independently audit the operating system, model binary, or other software running on the machine.
@@ -351,13 +355,20 @@ this extension, or whose `sender.url` is not an extension-owned document, is ref
    offers Retry or Re-read plan. A refused edit is kept on screen, marked unsynced, and blocks Apply —
    it is never silently dropped.
 4. **Apply** — the dialog states what will happen in this window. Confirming flushes pending edits
-   first and aborts if anything is unsynced; only then does `applyOrganization()` send
-   `APPLY_ORGANIZATION` with `approve: true`. The result dialog reports the worker's real outcome,
-   including `PARTIAL_APPLY_FAILURE` with the per-operation failures from `error.details`. After any
-   apply the session is marked spent, so the same review cannot be applied twice.
-5. **Stale session** — `STALE_TABS` (or a worker that restarted) moves the review to `session_lost`:
-   editing continues locally, no more messages are queued, Apply is blocked, and the page tells you to
-   scan again.
+   first and aborts if anything is unsynced, then asks the worker to confirm it still holds this
+   review (`GET_REVIEW_PLAN`) before anything is approved — a review that has gone is reported in the
+   dialog instead of as a late toast. Only then does `applyOrganization()` send `APPLY_ORGANIZATION`
+   with `approve: true`. The result dialog reports the worker's real outcome, including
+   `PARTIAL_APPLY_FAILURE` with the per-operation failures from `error.details`. After any apply the
+   session is marked spent, so the same review cannot be applied twice.
+5. **Session lifetime** — Manifest V3 stops an idle service worker and its memory goes with it, so the
+   snapshot and the plan are mirrored to `chrome.storage.session` on every scan and every accepted
+   edit, and read back before any request that names a session. Session storage is memory-only: it is
+   never written to disk, and Chrome clears it when the browser closes or the extension reloads. A
+   worker that restarts while you review therefore still applies the same plan; a reload or a browser
+   restart does not, and `STALE_TABS`/`INVALID_REQUEST` moves the review to `session_lost` — editing
+   continues locally, no more messages are queued, Apply is blocked, and the page tells you to scan
+   again. A spent review is removed from storage by its own apply, so it cannot come back.
 
 **What deliberately does not happen:** no `fetch` anywhere in `frontend/`, no `chrome.tabs` /
 `chrome.tabGroups` / `chrome.windows` call in any UI module, and no classification, validation or
@@ -401,9 +412,9 @@ These are the configuration fields, not a standalone executable configuration fi
 
 ```bash
 node --version    # v24.x
-npm test          # from the repo root: 137 mocked tests, no network, no model required
-npm run test:backend    # 77
-npm run test:frontend   # 60
+npm test          # from the repo root: 150 mocked tests, no network, no model required
+npm run test:backend    # 89
+npm run test:frontend   # 61
 ```
 
 `npm test` runs `node --test "backend/tests/*.test.js" "frontend/tests/*.test.js"` (Node's built-in
@@ -417,16 +428,25 @@ the entry point: the toolbar icon opens and focuses the dashboard, the message l
 trusted-sender check survive it, and the manifest keeps its loopback-only host permissions and has no
 `default_popup`.
 
+`session-store.test.js` (6) covers the review that has to outlive the worker: a stored session comes
+back byte-for-byte through JSON, a shape that is not provably a complete session is refused instead of
+half-restored, and a session area that throws is a console warning rather than a failed request.
+`message-handler.test.js` (19) then restarts the worker over the same session storage and asserts the
+stored review — edits included — is the one that groups and closes tabs, that a review whose window is
+gone is reported as stale rather than applied, and that an applied review is not left behind for the
+next restart. `entry-point.test.js` (9) runs the same restart through the **real** service worker
+module, with two freshly evaluated instances of `service-worker.js` sharing one fake browser.
+
 Frontend coverage is split four ways. `source.test.js` (31) drives `source.js` against a mocked
 `chrome.runtime.sendMessage`: `GET_STATUS` ready and every documented failure status, scan errors, a
 missing messaging API, session id retention and reuse, the exact `UPDATE_REVIEW_PLAN` payload,
 `APPLY_ORGANIZATION` always carrying `approve: true`, partial-apply `error.details`, and six malformed
 reply shapes — each one must become an error, never an empty success. `review-sync.test.js` (12)
 covers coalescing, retry, refused edits, an older reply not overwriting a newer edit, and Apply
-gating. `message-flow.test.js` (8) runs the **real** `handleMessage` with the fake `chrome`/`fetch`
+gating. `message-flow.test.js` (9) runs the **real** `handleMessage` with the fake `chrome`/`fetch`
 from `backend/tests/helpers.js` behind that same mocked `sendMessage`, so the adapter is tested against
-the actual contract rather than against my description of it — including stale-session recovery and
-"no tab was grouped or closed". `boundary.test.js` (9) statically forbids mock-data imports, network
+the actual contract rather than against my description of it — including stale-session recovery, a
+worker that restarts mid-review, and "no tab was grouped or closed". `boundary.test.js` (9) statically forbids mock-data imports, network
 calls, `chrome.tabs` in the UI, and message types outside the five documented ones.
 
 No automated test touches a real browser, a real endpoint, or a real tab closure.
@@ -467,7 +487,13 @@ Run the project's available test scripts from the repository root, using the com
    automated suite covers the same message flow against the real handler with a mocked
    `chrome.runtime.sendMessage` (`frontend/tests/message-flow.test.js`).
 
-3. Lower-level worker console (same messages, no UI — `chrome://extensions` → TabJanitor →
+3. The review surviving a stopped worker, which is the case the fix exists for: scan, edit a category,
+   wait past the idle timeout (or stop the worker yourself at `chrome://extensions` → "Inspect views:
+   service worker" → Terminate), then Apply. The tabs must group exactly as reviewed. If Chrome cleared
+   session storage instead — a reload or update of the extension, or a browser restart — the review
+   dialog must say it expired and change nothing. Needs a person in Chrome; has **not** been run here.
+
+4. Lower-level worker console (same messages, no UI — `chrome://extensions` → TabJanitor →
    "Inspect views: service worker"):
 
 
@@ -525,10 +551,12 @@ The central design decision is to separate **AI classification** from **browser 
   no-network-by-default property.
 - On phones the table header is hidden, so select-all is desktop-only; per-row closure selection and
   Clear All remain available.
-- Scan state lives in the service worker's memory only (no persistence was approved), so a worker
-  eviction clears the current session. Nothing detects that passively — the next edit or apply fails
-  with `STALE_TABS`/`INVALID_REQUEST`, the dashboard then marks the review `session_lost`, stops
-  queueing edits against the dead session, blocks Apply and asks you to re-scan.
+- The review lives in memory only: the worker's own state plus `chrome.storage.session`, which Chrome
+  clears when the browser closes or the extension is reloaded or updated. A worker stopped for being
+  idle is the case persistence covers — the next request reads the session back and Apply groups the
+  tabs that were on screen, edits included. A lost session is never detected passively: after a reload
+  or a browser restart the next edit or apply fails with `STALE_TABS`/`INVALID_REQUEST`, Apply reports
+  the review as expired in its own dialog rather than changing tabs, and the page asks you to re-scan.
 - Classification is one request per tab: the verified 1B model drops refs and returns prose when
   given a batch, so batching was measured and rejected. Expect roughly 2 s per tab.
 - The 1B model mislabels generic pages (for example `react.dev` came back as `Study`), which is why
