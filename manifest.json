@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "TabJanitor",
+  "version": "0.1.0",
+  "description": "AI-powered tab organization with local Gemma inference and explicit user approval.",
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": ["tabs", "tabGroups", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"]
+}

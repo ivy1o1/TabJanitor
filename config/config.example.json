@@ -1,0 +1,5 @@
+{
+  "inferenceEndpoint": "http://127.0.0.1:8080",
+  "inferenceModel": "gemma-3-1b-it",
+  "requestTimeoutMs": 60000
+}
