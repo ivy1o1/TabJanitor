@@ -1,5 +1,4 @@
 import { icon, logoMark } from '../icons.js';
-import { escapeHtml } from '../dom.js';
 
 /**
  * Sidebar: branding, navigation and the light/dark switch.
@@ -7,10 +6,9 @@ import { escapeHtml } from '../dom.js';
  * the accessibility tree of the navigation landmark.
  */
 export function renderSidebar({ theme }) {
-  const options = [
-    { value: 'light', label: 'Light theme', glyph: 'sun' },
-    { value: 'dark', label: 'Dark theme', glyph: 'moon' },
-  ];
+  const dark = theme === 'dark';
+  const caption = dark ? 'Dark Mode' : 'Light Mode';
+  const next = dark ? 'light' : 'dark';
   return `
     <div class="brand">
       <span class="brand-mark">${logoMark({ size: 27, label: 'TabJanitor logo' })}</span>
@@ -27,17 +25,13 @@ export function renderSidebar({ theme }) {
     </nav>
 
     <div class="sidebar-foot">
-      <div class="theme-toggle" role="group" aria-label="Colour theme">
-        ${options
-          .map(
-            (option) => `
-          <button type="button" class="theme-option" data-action="set-theme" data-theme-value="${option.value}"
-            aria-pressed="${theme === option.value}" aria-label="${escapeHtml(option.label)}">
-            ${icon(option.glyph, { size: 17 })}
-          </button>`,
-          )
-          .join('<span class="theme-toggle__divider" aria-hidden="true"></span>')}
-      </div>
+      <button type="button" class="theme-switch" data-mode="${theme}" data-action="set-theme"
+        data-focus-key="theme" data-theme-value="${next}">
+        <span class="theme-switch__track" aria-hidden="true">
+          <span class="theme-switch__knob">${icon(dark ? 'moon-stars' : 'sun', { size: 15 })}</span>
+        </span>
+        <span class="theme-switch__caption">${caption}<span class="visually-hidden"> — switch to ${next} mode</span></span>
+      </button>
       <span class="sticker" aria-hidden="true">Less clutter, more focus.</span>
       <div class="checker" style="width:64px" aria-hidden="true"></div>
       <div class="doodles" aria-hidden="true">${icon('star', { size: 22 })}${icon('arrow', { size: 22 })}${icon('sparkle', { size: 18 })}</div>

@@ -481,45 +481,61 @@ select {
   background: var(--surface-sunken);
 }
 
-.theme-toggle {
-  display: inline-flex;
-  align-items: center;
+/*
+ * The theme switch follows the reference: a track with a knob that slides to the
+ * side of the active mode and carries that mode's glyph, caption underneath.
+ */
+.theme-switch {
+  display: inline-grid;
+  justify-items: center;
   gap: var(--space-2);
-  padding: 5px;
-  background: var(--surface-raised);
+  justify-self: start;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.theme-switch__track {
+  position: relative;
+  display: block;
+  width: 66px;
+  height: 34px;
+  background: var(--switch-track);
   border: var(--border-w) solid var(--line);
   border-radius: 999px;
   box-shadow: var(--shadow-offset-sm) var(--shadow-offset-sm) 0 var(--shadow-color);
+  transition: transform var(--motion-fast) var(--ease);
 }
 
-.theme-toggle__divider {
-  width: var(--border-w);
-  height: 18px;
-  background: var(--line);
-  opacity: 0.35;
-}
-
-.theme-option {
+.theme-switch__knob {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 30px;
-  padding: 0;
-  background: transparent;
-  border: var(--border-w) solid transparent;
-  border-radius: 999px;
-  color: var(--ink-muted);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--switch-knob);
+  color: var(--switch-knob-ink);
+  transition: transform var(--motion-base) var(--ease);
 }
 
-.theme-option[aria-pressed='true'] {
-  background: var(--ink);
-  color: var(--ink-invert);
-  border-color: var(--line);
+/* 62px of padding box, less the 2px inset on each side and the 26px knob. */
+.theme-switch[data-mode='dark'] .theme-switch__knob {
+  transform: translateX(32px);
 }
 
-[data-theme='dark'] .theme-option[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--accent-ink);
+.theme-switch__caption {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+}
+
+.theme-switch:hover .theme-switch__track {
+  transform: translateY(-1px);
 }
 
 .sidebar-foot {
@@ -825,6 +841,10 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: var(--space-3);
   padding-top: 14px;
+  /* A stacking context, so a card's background glow can drop behind its neighbours but
+     can never travel out of the card row and dim the panels below it. */
+  position: relative;
+  z-index: 0;
 }
 
 .card {
@@ -837,10 +857,7 @@ select {
   color: var(--cat-ink);
   border: var(--border-w) solid var(--line);
   border-radius: var(--radius-md);
-  /* --card-glow is empty until the card becomes the active filter, and it rides
-     along in every state so hover never cancels the glow. */
-  --card-glow: 0 0 0 0 transparent;
-  box-shadow: 5px 5px 0 var(--shadow-color), var(--card-glow);
+  box-shadow: 5px 5px 0 var(--shadow-color);
   transition: transform var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease);
 }
 
@@ -858,14 +875,32 @@ select {
   border-radius: 8px 8px 0 0;
 }
 
+/*
+ * The glow of the selected filter. It sits on its own z-index:-1 layer so the light
+ * reads as coming from behind the folder: it is painted before the cards, so no
+ * neighbouring card, tab or panel is ever covered by it.
+ */
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  /* Two layers: a tight core and a wide falloff. */
+  box-shadow: 0 0 14px 2px var(--cat-glow, transparent), 0 0 36px 12px var(--cat-glow, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--ease);
+}
+
 .card:hover {
   transform: translate(-2px, -2px);
-  box-shadow: 7px 7px 0 var(--shadow-color), var(--card-glow);
+  box-shadow: 7px 7px 0 var(--shadow-color);
 }
 
 .card:active {
   transform: translate(2px, 2px);
-  box-shadow: 2px 2px 0 var(--shadow-color), var(--card-glow);
+  box-shadow: 2px 2px 0 var(--shadow-color);
 }
 
 .card__top {
@@ -913,9 +948,20 @@ select {
 .card[aria-pressed='true'] {
   outline: 3px solid var(--line);
   outline-offset: 3px;
-  /* Two layers: a tight core and a wide falloff, so the light reads as coming
-     from behind the folder rather than as a ring around it. */
-  --card-glow: 0 0 14px 2px var(--cat-glow), 0 0 36px 12px var(--cat-glow);
+}
+
+.card[aria-pressed='true']::after {
+  opacity: 1;
+}
+
+/*
+ * A transform would turn the card into its own stacking context and pull the glow back
+ * in front of its neighbours, so the selected card keeps its place and signals with the
+ * outline, the deepened shadow and the halo instead of the lift.
+ */
+.card[aria-pressed='true']:hover,
+.card[aria-pressed='true']:active {
+  transform: none;
 }
 
 /* Tab table */
@@ -1290,6 +1336,26 @@ tbody tr[data-close-selected='true'] {
 
 [data-theme='light'] .apply-panel {
   box-shadow: var(--shadow-offset) var(--shadow-offset) 0 var(--shadow-color);
+}
+
+/*
+ * The halo lives on a z-index:-1 layer, so it falls all the way back to the page
+ * background and every component in front of it — the tab table, the side panels —
+ * keeps its own visuals clear. The panel itself only carries its hard offset shadow.
+ */
+.apply-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow: 0 0 16px 2px var(--apply-glow), 0 0 42px 16px var(--apply-glow);
+  transition: box-shadow var(--motion-base) var(--ease);
+}
+
+.apply-panel:hover::before,
+.apply-panel:focus-within::before {
+  box-shadow: 0 0 20px 5px var(--apply-glow-strong), 0 0 58px 22px var(--apply-glow-strong);
 }
 
 .apply-panel .panel-title {
@@ -1716,7 +1782,8 @@ dialog.demo-dialog::backdrop {
   }
 
   .btn:hover,
-  .card:hover {
+  .card:hover,
+  .theme-switch:hover .theme-switch__track {
     transform: none;
   }
 }

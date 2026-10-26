@@ -7,6 +7,11 @@ const PATHS = {
   home: '<path d="M3 10.6 12 3l9 7.6V20a1 1 0 0 1-1 1h-5.5v-6.5h-5V21H4a1 1 0 0 1-1-1z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
   moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  /* The crescent is shrunk into the lower left so the two sparkles can sit clear
+     of it in the small chip. */
+  'moon-stars':
+    '<g transform="translate(0.8 2.6) scale(0.78)" stroke-width="2.4"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></g>' +
+    '<path d="M19.1 2.4v2.8M17.7 3.8h2.8M21.5 8.1v2.1M20.4 9.1h2.1"/>',
   monitor: '<rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/>',
   refresh: '<path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4v5h-5"/>',
   sliders: '<path d="M5 21v-7M5 10V3M12 21v-4M12 13V3M19 21v-9M19 8V3"/><path d="M2.5 14h5M9.5 17h5M16.5 12h5"/>',

@@ -69,7 +69,11 @@ function showToast(message) {
 /* --------------------------------------------------------------- rendering */
 
 function renderChrome() {
-  els.sidebar.innerHTML = renderSidebar({ theme: theme.theme() });
+  /* The theme switch re-renders with the rest of the chrome, so focus has to survive
+     it or a keyboard user is thrown back to the top of the page on every toggle. */
+  preservingFocus(els.sidebar, () => {
+    els.sidebar.innerHTML = renderSidebar({ theme: theme.theme() });
+  });
   els.banner.innerHTML = renderScanBanner({ scanning: state.get().scanning });
   els.footer.innerHTML = renderFooter({ version: 'v0.1.0' });
 }

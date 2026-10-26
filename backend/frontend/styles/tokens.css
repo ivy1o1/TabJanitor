@@ -76,6 +76,11 @@
   --brand-mark: #fdf6e9;
   --brand-line: #14110f;
 
+  /* Theme switch: the track is the recessed channel, the knob the active mode. */
+  --switch-track: #ecdcc0;
+  --switch-knob: #14110f;
+  --switch-knob-ink: #f7c948;
+
   /* The dark call-to-action sinks to near-black on hover, so it needs an
      explicit light ink and glow rather than reusing --ink/--ink-invert. */
   --btn-dark-hover-bg: #000000;
@@ -93,6 +98,9 @@
   --panel-dark-ink: #f6efe2;
   --panel-dark-muted: #a99fb2;
   --panel-dark-line: #000000;
+  /* The apply panel glows in the hue of its own call to action. */
+  --apply-glow: rgba(247, 201, 72, 0.4);
+  --apply-glow-strong: rgba(247, 201, 72, 0.68);
 
   --field-bg: #fdf6e9;
   --field-ink: #14110f;
@@ -163,6 +171,11 @@
   --brand-mark: #f6efe2;
   --brand-line: #4a3f35;
 
+  /* Dark mode flips the channel to cream so the ink knob reads like the reference. */
+  --switch-track: #f6efe2;
+  --switch-knob: #0d0a08;
+  --switch-knob-ink: #f6efe2;
+
   --btn-dark-hover-bg: #17130f;
   --btn-dark-hover-ink: #f6efe2;
   --btn-dark-glow: rgba(246, 239, 226, 0.7);
@@ -177,6 +190,8 @@
   --panel-dark-ink: #f6efe2;
   --panel-dark-muted: #a2989f;
   --panel-dark-line: #000000;
+  --apply-glow: rgba(247, 201, 72, 0.32);
+  --apply-glow-strong: rgba(247, 201, 72, 0.55);
 
   --field-bg: #1b1611;
   --field-ink: #f2e8d9;
