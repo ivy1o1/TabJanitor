@@ -14,10 +14,20 @@ import { renderScanBanner } from './components/scan-banner.js';
 import { renderScanSummary } from './components/scan-summary.js';
 import { renderCategoryCards } from './components/category-cards.js';
 import { renderRows, renderUnclassified } from './components/tab-table.js';
-import { renderApplySummary, renderDistribution, renderSelectedPanel } from './components/side-panels.js';
-import { renderApplyDialog } from './components/confirmation-dialog.js';
+import { renderApplySummary, renderDistribution, renderSelectedPanel, renderSyncPanel } from './components/side-panels.js';
+import { renderApplyDialog, renderApplyResult } from './components/confirmation-dialog.js';
 import { renderFooter } from './components/footer.js';
-import { applyOrganization, demoNotice, getStatus, scan as requestScan } from './source.js';
+import { STATUS, createReviewSync } from './review-sync.js';
+import {
+  CLIENT_ERROR_CODES,
+  ERROR_CODES,
+  applyOrganization,
+  getReviewPlan,
+  getStatus,
+  isExtensionContext,
+  scan as requestScan,
+  updatePlan,
+} from './source.js';
 
 const el = (id) => document.getElementById(id);
 const els = {
@@ -37,8 +47,10 @@ const els = {
   selectedTotal: el('selected-total'),
   selectedList: el('selected-list'),
   applySummary: el('apply-summary'),
+  syncPanel: el('sync-state'),
   selectAll: el('select-all'),
   clearClosures: document.querySelector('[data-action="clear-closures"]'),
+  applyButton: document.querySelector('[data-action="open-apply-dialog"]'),
   footer: el('footer'),
   dialog: el('apply-dialog'),
   toast: el('toast'),
@@ -46,15 +58,55 @@ const els = {
 
 const theme = createThemeController();
 
+/** A review that has not been scanned yet: every renderer works on this, nothing invented. */
+function emptyScan() {
+  const counts = Object.fromEntries(CATEGORY_ORDER.map((category) => [category, 0]));
+  return {
+    sessionId: '',
+    windowId: null,
+    scannedCount: 0,
+    eligibleCount: 0,
+    classifiedCount: 0,
+    skippedUnsupported: [],
+    unclassified: [],
+    truncated: [],
+    rejected: [],
+    modelMeta: null,
+    plan: {
+      sessionId: '',
+      windowId: null,
+      items: [],
+      counts,
+      summary: { total: 0, closureCount: 0, editedCount: 0 },
+      skippedUnsupported: [],
+      unclassified: [],
+    },
+  };
+}
+
 const state = createStore({
-  scan: null,
-  status: { status: 'checking', canScan: false, endpoint: 'not connected', model: 'Loading…', message: 'Reading demo status.' },
+  scan: emptyScan(),
+  sessionId: '',
+  status: {
+    status: 'checking',
+    canScan: false,
+    endpoint: 'not connected',
+    model: 'unknown model',
+    message: 'Asking the extension whether the local model is ready.',
+    probe: null,
+  },
+  sync: { status: STATUS.CLEAN, message: '', pendingCount: 0, unsyncedCount: 0, sessionLost: false, canApply: true },
   search: '',
   categoryFilter: null,
   openMenuTabId: null,
   scanning: false,
-  lastScanLabel: 'Last scan: none — sample data',
+  applying: false,
+  applied: false,
+  lastScanLabel: 'Last scan: none yet',
 });
+
+/** The live edit synchronizer for the current session; rebuilt on every scan. */
+let sync = null;
 
 let toastTimer = null;
 function showToast(message) {
@@ -63,7 +115,25 @@ function showToast(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     els.toast.hidden = true;
-  }, 4200);
+  }, 6000);
+}
+
+/* ---------------------------------------------------------------- status mapping */
+
+function statusFromError(error) {
+  const known = {
+    [CLIENT_ERROR_CODES.NOT_EXTENSION]: 'not_extension',
+    [CLIENT_ERROR_CODES.MESSAGING_FAILED]: 'worker_unavailable',
+    [CLIENT_ERROR_CODES.MALFORMED_RESPONSE]: 'invalid_response',
+  };
+  return {
+    status: known[error?.code] || 'endpoint_unreachable',
+    canScan: false,
+    endpoint: 'not connected',
+    model: 'unknown model',
+    message: error?.message || 'The status check failed.',
+    probe: null,
+  };
 }
 
 /* --------------------------------------------------------------- rendering */
@@ -74,7 +144,12 @@ function renderChrome() {
   preservingFocus(els.sidebar, () => {
     els.sidebar.innerHTML = renderSidebar({ theme: theme.theme() });
   });
-  els.banner.innerHTML = renderScanBanner({ scanning: state.get().scanning });
+  const snapshot = state.get();
+  els.banner.innerHTML = renderScanBanner({
+    scanning: snapshot.scanning,
+    status: snapshot.status,
+    hasSession: Boolean(snapshot.sessionId) && !snapshot.sync.sessionLost,
+  });
   els.footer.innerHTML = renderFooter({ version: 'v0.1.0' });
 }
 
@@ -93,15 +168,28 @@ function renderData() {
 
   const selected = renderSelectedPanel(scan);
   els.selectedCount.textContent = String(selected.count);
-  els.selectedTotal.textContent = `of ${selected.total} sample tabs`;
+  els.selectedTotal.textContent = `of ${selected.total} classified tabs`;
   els.selectedList.innerHTML =
     selected.list + (selected.more ? `<li class="muted">+${selected.more} more</li>` : '');
   els.applySummary.innerHTML = renderApplySummary(scan);
-  els.clearClosures.disabled = selected.count === 0;
+  els.clearClosures.disabled = selected.count === 0 || snapshot.sync.sessionLost;
 
   const unclassified = scan.unclassified || [];
   els.unclassifiedPanel.hidden = unclassified.length === 0;
   els.unclassifiedList.innerHTML = renderUnclassified(scan);
+
+  renderSyncRegion();
+}
+
+function renderSyncRegion() {
+  const snapshot = state.get();
+  els.syncPanel.innerHTML = renderSyncPanel(snapshot);
+  els.applyButton.disabled =
+    snapshot.scanning
+    || snapshot.applying
+    || snapshot.applied
+    || snapshot.sync.sessionLost
+    || planItems(snapshot.scan).length === 0;
 }
 
 function renderViewOptions(scan) {
@@ -120,16 +208,32 @@ function renderViewOptions(scan) {
 function renderRowsRegion(scan) {
   const snapshot = state.get();
   const visible = filterItems(scan, { search: snapshot.search, category: snapshot.categoryFilter });
+  const empty = planItems(scan).length === 0;
   preservingFocus(els.rows, () => {
-    els.rows.innerHTML = renderRows(snapshot);
+    els.rows.innerHTML = empty
+      ? `<tr><td colspan="8"><p class="empty-state">${emptyMessage(snapshot)}</p></td></tr>`
+      : renderRows(snapshot);
   });
-  els.rowCount.textContent = `${visible.length} of ${planItems(scan).length} sample tabs shown · ${
-    visible.filter((item) => item.closeSelected).length
-  } selected for closure in view`;
+  els.rowCount.textContent = empty
+    ? `${planItems(scan).length} tabs in this review`
+    : `${visible.length} of ${planItems(scan).length} classified tabs shown · ${
+        visible.filter((item) => item.closeSelected).length
+      } selected for closure in view`;
   const allSelected = visible.length > 0 && visible.every((item) => item.closeSelected);
   els.selectAll.checked = allSelected;
   els.selectAll.indeterminate = !allSelected && visible.some((item) => item.closeSelected);
   els.selectAll.disabled = visible.length === 0;
+}
+
+function emptyMessage(snapshot) {
+  if (snapshot.applied) {
+    return 'This review was applied to your browser. Scan the window again to review what is left.';
+  }
+  if (snapshot.sync.sessionLost) {
+    return 'The service worker no longer has this session, so there is nothing to review. Scan the window again.';
+  }
+  if (snapshot.scanning) return 'Reading the current window…';
+  return 'No scan yet. Nothing has been read from your browser. Use Scan Window to build a review plan.';
 }
 
 function renderAll() {
@@ -138,11 +242,186 @@ function renderAll() {
   renderData();
 }
 
-/* ------------------------------------------------------------------ events */
-
 function commit(patch) {
   state.set(patch);
 }
+
+/* ------------------------------------------------------------------ actions */
+
+async function refreshStatus({ announce = false } = {}) {
+  commit({ status: { ...state.get().status, status: 'checking', message: 'Checking the local model…' } });
+  renderChrome();
+  renderStatus();
+  try {
+    const status = await getStatus();
+    commit({ status });
+  } catch (error) {
+    commit({ status: statusFromError(error) });
+  }
+  renderChrome();
+  renderStatus();
+  if (announce) {
+    const { status } = state.get();
+    showToast(
+      status.status === 'ready'
+        ? `Status: ${status.message}`
+        : `Status check failed: ${status.message}`,
+    );
+  }
+}
+
+async function runScan() {
+  const snapshot = state.get();
+  if (snapshot.scanning) return;
+  if (!snapshot.status.canScan) {
+    showToast(`Scanning is not available: ${snapshot.status.message}`);
+    return;
+  }
+  commit({ scanning: true });
+  renderChrome();
+  let result;
+  try {
+    result = await requestScan();
+  } catch (error) {
+    commit({ scanning: false });
+    renderChrome();
+    showToast(`Scan failed (${error.code || 'ERROR'}): ${error.message}`);
+    // The previous review stays exactly as it was; nothing is invented to replace it.
+    return;
+  }
+  recomputePlan(result);
+  // A new scan ends the old review: its queued edits must never be sent against a dead session.
+  sync?.dispose();
+  sync = createReviewSync({
+    scan: result,
+    sessionId: result.sessionId,
+    updatePlan,
+    getReviewPlan,
+  });
+  sync.subscribe((next) => {
+    commit({ sync: next });
+    renderSyncRegion();
+  });
+  commit({
+    scanning: false,
+    scan: result,
+    sessionId: result.sessionId,
+    applied: false,
+    search: '',
+    categoryFilter: null,
+    openMenuTabId: null,
+    sync: sync.read(),
+    lastScanLabel: `Scanned ${result.scannedCount} tabs at ${new Date().toLocaleTimeString()} · session kept in the service worker`,
+  });
+  els.search.value = '';
+  renderChrome();
+  renderData();
+  showToast(scanReport(result));
+}
+
+function scanReport(result) {
+  const parts = [`${result.plan.items.length} classified`];
+  if (result.unclassified.length) parts.push(`${result.unclassified.length} not classified`);
+  if (result.skippedUnsupported.length) parts.push(`${result.skippedUnsupported.length} unsupported`);
+  if (result.truncated.length) parts.push(`${result.truncated.length} beyond the per-request cap`);
+  if (result.rejected.length) parts.push(`${result.rejected.length} model answers rejected`);
+  const meta = result.modelMeta?.requests ? ` · ${result.modelMeta.requests} model request(s)` : '';
+  return `Scan complete: ${parts.join(', ')}${meta}. Review it, then apply.`;
+}
+
+/** Any edit path funnels through the synchronizer, so the session always learns about it. */
+function recordEdits(patches) {
+  if (!sync) {
+    showToast('There is no active session to edit.');
+    return false;
+  }
+  const list = Array.isArray(patches) ? patches : [patches];
+  const changed = sync.recordMany(list);
+  if (!changed) return false;
+  commit({ sync: sync.read() });
+  renderData();
+  return true;
+}
+
+async function openApplyDialog() {
+  const snapshot = state.get();
+  if (snapshot.applied) {
+    showToast('This review has already been applied. Scan the window again.');
+    return;
+  }
+  if (!snapshot.sessionId || planItems(snapshot.scan).length === 0) {
+    showToast('Nothing to apply yet — scan a window first.');
+    return;
+  }
+  if (snapshot.sync.sessionLost) {
+    showToast('This session has expired. Scan the window again before applying.');
+    return;
+  }
+  els.dialog.innerHTML = renderApplyDialog(snapshot.scan, snapshot.sync);
+  if (!els.dialog.open) els.dialog.showModal();
+  els.dialog.querySelector('[data-focus-key="dialog-cancel"]')?.focus();
+}
+
+async function confirmApply() {
+  const snapshot = state.get();
+  if (snapshot.applying || snapshot.applied) return;
+  if (!snapshot.sessionId) {
+    showToast('There is no session to apply.');
+    return;
+  }
+  commit({ applying: true });
+  const confirm = els.dialog.querySelector('[data-action="confirm-apply"]');
+  confirm?.setAttribute('disabled', '');
+
+  // Nothing is applied while an edit has not reached the session.
+  const flushed = sync ? await sync.flush() : { ok: true, state: snapshot.sync };
+  if (!flushed.ok) {
+    commit({ applying: false, sync: flushed.state });
+    els.dialog.innerHTML = renderApplyDialog(state.get().scan, { ...flushed.state, blocked: true });
+    els.dialog.querySelector('[data-focus-key="dialog-cancel"]')?.focus();
+    showToast(`Not applied: ${flushed.state.message || 'your changes have not been saved to the session.'}`);
+    renderData();
+    return;
+  }
+
+  let result;
+  try {
+    result = await applyOrganization({ sessionId: snapshot.sessionId });
+  } catch (error) {
+    commit({ applying: false });
+    if (error.code === ERROR_CODES.PARTIAL_APPLY_FAILURE) {
+      // A partial truth: show exactly what the browser did and what it did not.
+      sync?.loseSession('Part of this review was applied. Scan the window again to continue.');
+      els.dialog.innerHTML = renderApplyResult(error.details, { partial: true, message: error.message });
+      els.dialog.querySelector('[data-focus-key="dialog-close"]')?.focus();
+      commit({ applied: true, sync: sync ? sync.read() : state.get().sync });
+      renderData();
+      return;
+    }
+    if (error.code === ERROR_CODES.STALE_TABS || error.code === ERROR_CODES.INVALID_REQUEST) {
+      sync?.loseSession(error.message);
+      commit({ sync: sync ? sync.read() : state.get().sync });
+    }
+    showToast(`Apply failed (${error.code || 'ERROR'}): ${error.message}`);
+    els.dialog.close();
+    renderData();
+    return;
+  }
+  // The session is spent: the browser has changed, so this review can not be applied twice.
+  sync?.loseSession('This review has been applied. Scan the window again to organize anything else.');
+  commit({
+    applying: false,
+    applied: true,
+    sync: sync ? sync.read() : state.get().sync,
+    lastScanLabel: `Applied ${new Date().toLocaleTimeString()} · scan again for a fresh review`,
+  });
+  els.dialog.innerHTML = renderApplyResult(result, { partial: false });
+  els.dialog.querySelector('[data-focus-key="dialog-close"]')?.focus();
+  renderChrome();
+  renderData();
+}
+
+/* ------------------------------------------------------------------ events */
 
 on(els.sidebar, 'click', '[data-action="set-theme"]', (event, target) => {
   theme.set(target.dataset.themeValue);
@@ -156,37 +435,13 @@ on(els.sidebar, 'click', '[data-action="nav-home"]', () => {
   showToast('Home is the only view in this build. Filters were reset.');
 });
 
-on(els.statusbar, 'click', '[data-action="refresh-status"]', async () => {
-  commit({ status: { ...state.get().status, status: 'checking', message: 'Demo mode: no request is made.' } });
-  renderStatus();
-  const status = await getStatus();
-  commit({ status });
-  renderStatus();
-  showToast('Demo mode: no readiness check was performed. Backend integration is the next phase.');
-});
+on(els.statusbar, 'click', '[data-action="refresh-status"]', () => refreshStatus({ announce: true }));
 
 on(els.statusbar, 'click', '[data-action="open-settings"]', () => {
-  showToast('Settings are not part of this phase. Endpoint and model live in chrome.storage.local.');
+  showToast('Settings are not part of this build. Endpoint and model live in chrome.storage.local.');
 });
 
-on(els.banner, 'click', '[data-action="scan"]', async () => {
-  commit({ scanning: true });
-  renderChrome();
-  const next = await requestScan();
-  recomputePlan(next);
-  // Give the disabled state a beat so the button visibly responds.
-  await new Promise((resolve) => setTimeout(resolve, 350));
-  commit({
-    scanning: false,
-    scan: next,
-    categoryFilter: null,
-    openMenuTabId: null,
-    lastScanLabel: `Sample data loaded ${new Date().toLocaleTimeString()} · demo`,
-  });
-  renderChrome();
-  renderData();
-  showToast(demoNotice());
-});
+on(els.banner, 'click', '[data-action="scan"]', () => runScan());
 
 on(els.cards, 'click', '[data-action="filter-category"]', (event, target) => {
   const category = target.dataset.category;
@@ -220,47 +475,35 @@ els.viewSelect.addEventListener('change', () => {
 els.selectAll.addEventListener('change', () => {
   const snapshot = state.get();
   const visible = filterItems(snapshot.scan, { search: snapshot.search, category: snapshot.categoryFilter });
-  for (const item of visible) item.closeSelected = els.selectAll.checked;
-  recomputePlan(snapshot.scan);
-  renderData();
+  const wanted = els.selectAll.checked;
+  recordEdits(visible.filter((item) => item.closeSelected !== wanted).map((item) => ({
+    tabId: item.tabId,
+    closeSelected: wanted,
+  })));
 });
 
 document.addEventListener('click', (event) => {
   const trigger = event.target.closest('[data-action="clear-closures"]');
   if (!trigger) return;
   const snapshot = state.get();
-  for (const item of planItems(snapshot.scan)) item.closeSelected = false;
-  recomputePlan(snapshot.scan);
-  renderData();
-  showToast('Closure selection cleared (demo state only).');
+  recordEdits(planItems(snapshot.scan)
+    .filter((item) => item.closeSelected)
+    .map((item) => ({ tabId: item.tabId, closeSelected: false })));
+  showToast('Closure selection cleared. The session was told.');
 });
 
 on(els.rows, 'change', '[data-action="toggle-close"]', (event, target) => {
-  const snapshot = state.get();
-  const item = findItem(snapshot.scan, Number(target.dataset.tabId));
-  if (!item) return;
-  item.closeSelected = target.checked;
-  recomputePlan(snapshot.scan);
-  renderData();
+  recordEdits({ tabId: Number(target.dataset.tabId), closeSelected: target.checked });
 });
 
 on(els.rows, 'click', 'button[data-action="toggle-close"]', (event, target) => {
-  const snapshot = state.get();
-  const item = findItem(snapshot.scan, Number(target.dataset.tabId));
+  const item = findItem(state.get().scan, Number(target.dataset.tabId));
   if (!item) return;
-  item.closeSelected = !item.closeSelected;
-  recomputePlan(snapshot.scan);
-  renderData();
+  recordEdits({ tabId: item.tabId, closeSelected: !item.closeSelected });
 });
 
 on(els.rows, 'change', '[data-action="change-category"]', (event, target) => {
-  const snapshot = state.get();
-  const item = findItem(snapshot.scan, Number(target.dataset.tabId));
-  if (!item) return;
-  item.category = target.value;
-  item.userEdited = item.category !== item.originalCategory;
-  recomputePlan(snapshot.scan);
-  renderData();
+  recordEdits({ tabId: Number(target.dataset.tabId), category: target.value });
 });
 
 on(els.rows, 'click', '[data-action="toggle-menu"]', (event, target) => {
@@ -270,24 +513,17 @@ on(els.rows, 'click', '[data-action="toggle-menu"]', (event, target) => {
 });
 
 on(els.rows, 'click', '[data-action="reset-category"]', (event, target) => {
-  const snapshot = state.get();
-  const item = findItem(snapshot.scan, Number(target.dataset.tabId));
+  const item = findItem(state.get().scan, Number(target.dataset.tabId));
   if (!item) return;
-  item.category = item.originalCategory;
-  item.userEdited = false;
   commit({ openMenuTabId: null });
-  recomputePlan(snapshot.scan);
-  renderData();
+  recordEdits({ tabId: item.tabId, category: item.originalCategory });
 });
 
 on(els.rows, 'click', '[data-action="keep-open"]', (event, target) => {
-  const snapshot = state.get();
-  const item = findItem(snapshot.scan, Number(target.dataset.tabId));
+  const item = findItem(state.get().scan, Number(target.dataset.tabId));
   if (!item) return;
-  item.closeSelected = false;
   commit({ openMenuTabId: null });
-  recomputePlan(snapshot.scan);
-  renderData();
+  recordEdits({ tabId: item.tabId, closeSelected: false });
 });
 
 document.addEventListener('click', (event) => {
@@ -303,31 +539,52 @@ document.addEventListener('keydown', (event) => {
   renderRowsRegion(state.get().scan);
 });
 
+on(els.syncPanel, 'click', '[data-action="retry-sync"]', async () => {
+  if (!sync) return;
+  const flushed = await sync.flush();
+  commit({ sync: flushed.state });
+  renderData();
+  showToast(flushed.ok ? 'All changes are saved to the session.' : `Still not saved: ${flushed.state.message}`);
+});
+
+on(els.syncPanel, 'click', '[data-action="reload-plan"]', async () => {
+  if (!sync) return;
+  const result = await sync.reload();
+  commit({ sync: sync.read() });
+  renderData();
+  showToast(result.ok ? 'Re-read the plan from the session.' : `Could not re-read the plan: ${result.message}`);
+});
+
 document.addEventListener('click', (event) => {
-  if (!event.target.closest('[data-action="open-apply-dialog"]')) return;
-  els.dialog.innerHTML = renderApplyDialog(state.get().scan);
-  if (!els.dialog.open) els.dialog.showModal();
-  els.dialog.querySelector('[data-focus-key="dialog-cancel"]')?.focus();
+  if (event.target.closest('[data-action="open-apply-dialog"]')) {
+    openApplyDialog();
+    return;
+  }
+  if (event.target.closest('[data-action="confirm-apply"]')) {
+    confirmApply();
+  }
 });
 
 on(els.dialog, 'click', '[data-action="close-dialog"]', () => {
   els.dialog.close();
 });
 
-on(els.dialog, 'click', '[data-action="confirm-demo-apply"]', async () => {
-  els.dialog.close();
-  const result = await applyOrganization();
-  showToast(result.message);
-});
-
 /* ------------------------------------------------------------------- start */
 
 async function start() {
-  const initial = await requestScan();
-  recomputePlan(initial);
-  state.set({ scan: initial });
-  commit({ status: await getStatus() });
   renderAll();
+  if (!isExtensionContext()) {
+    commit({
+      status: statusFromError({
+        code: CLIENT_ERROR_CODES.NOT_EXTENSION,
+        message: 'This dashboard is not running as an extension page, so it cannot read your tabs. Load TabJanitor unpacked and open the dashboard from its toolbar icon.',
+      }),
+    });
+    renderChrome();
+    renderStatus();
+    return;
+  }
+  await refreshStatus();
 }
 
 start();

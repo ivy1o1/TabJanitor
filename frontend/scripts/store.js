@@ -1,6 +1,6 @@
 /*
  * Minimal observable state container for UI state only: filters, search text,
- * selection, demo rows, status, dialogs. It knows nothing about the browser, the
+ * selection, review rows, status, dialogs. It knows nothing about the browser, the
  * backend, or how state is persisted (see theme.js for the one exception).
  */
 export function createStore(initial) {

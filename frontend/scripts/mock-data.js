@@ -1,18 +1,17 @@
 /*
  * =====================================================================================
- * DEMO DATA ONLY — NOT CONNECTED TO ANY BACKEND, BROWSER API, OR MODEL.
+ * FIXTURE DATA ONLY — NOT IMPORTED BY THE DASHBOARD, NOT CONNECTED TO ANY BROWSER API.
  * =====================================================================================
  *
- * Everything in this module is a hand-written sample used to develop and review the
- * frontend. Nothing here was read from the browser and no tab in this list is real.
+ * Everything in this module is a hand-written sample that was used to design and review
+ * the frontend. Nothing here was read from the browser and no tab in this list is real.
+ * It is kept for offline visual checks: `dashboard.js` gets its data from
+ * `frontend/scripts/source.js`, and no production path imports this file. If this module
+ * ever appears in an import graph of the shipped dashboard, that is a bug.
  *
  * The shapes deliberately mirror `docs/API_CONTRACT.md`:
- *   - `demoScanResult` matches the `SCAN_TABS` `data` envelope payload.
- *   - `demoScanResult.plan.items[]` matches the review-plan item shape field for field.
- *
- * That is the whole integration boundary for phase 2: replace this module with the
- * `SCAN_TABS` response from `background/message-handler.js` and the components keep
- * working unchanged. `frontend/scripts/source.js` is the only file that imports it.
+ *   - `buildDemoScanResult()` matches the `SCAN_TABS` `data` payload.
+ *   - its `plan.items[]` matches the review-plan item shape field for field.
  */
 
 /** Shown verbatim wherever demo data is on screen. */
